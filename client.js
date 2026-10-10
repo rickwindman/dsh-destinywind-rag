@@ -100,9 +100,13 @@ window.__ModuleLoader__.load({
       btnSm: { padding: '3px 9px', borderRadius: 6, border: `1px solid ${T.border}`, background: 'transparent', color: T.text, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
       input: { width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 8, border: `1px solid ${T.border}`, background: 'transparent', color: T.text, fontSize: 13, fontFamily: 'inherit' },
       select: { padding: '7px 10px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: 'inherit' },
-      table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+      table: { width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' },
       th: { textAlign: 'left', padding: '8px 12px', borderBottom: `1px solid ${T.border}`, color: T.text2, fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap' },
-      td: { padding: '9px 12px', borderBottom: `1px solid ${T.border}`, color: T.text, verticalAlign: 'middle' },
+      td: { padding: '9px 12px', borderBottom: `1px solid ${T.border}`, color: T.text, verticalAlign: 'middle', overflowWrap: 'break-word', wordBreak: 'break-word' },
+      /** 长路径/长名称截断：两行省略 + title 悬浮看全文（配合 table-layout:fixed 防挤爆按钮）。 */
+      clamp2: { display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', wordBreak: 'break-all' },
+      /** 操作按钮组：空间不足时自动换行，绝不溢出可视区。 */
+      btnWrap: { display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' },
       pill: (color) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', borderRadius: 999, background: 'transparent', border: `1px solid ${color}`, color }),
       dot: (color) => ({ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flex: 'none' }),
       bar: { height: 6, background: T.surfaceAlt, borderRadius: 999, overflow: 'hidden', minWidth: 90 },
@@ -198,10 +202,17 @@ window.__ModuleLoader__.load({
                   React.createElement('button', { type: 'button', style: styles.btnPrimary, onClick: () => setDialog({ kind: 'addFolder' }) }, '📁 添加文件夹'),
                 )
               : React.createElement('table', { style: styles.table },
+                  React.createElement('colgroup', null,
+                    React.createElement('col', { style: { width: '26%' } }),
+                    React.createElement('col', { style: { width: '10%' } }),
+                    React.createElement('col', { style: { width: '11%' } }),
+                    React.createElement('col', { style: { width: '17%' } }),
+                    React.createElement('col', { style: { width: '36%' } }),
+                  ),
                   React.createElement('thead', null, React.createElement('tr', null,
                     React.createElement('th', { style: styles.th }, '名称'),
-                    React.createElement('th', { style: styles.th }, '文档数量'),
-                    React.createElement('th', { style: styles.th }, '索引状态'),
+                    React.createElement('th', { style: styles.th }, '文档'),
+                    React.createElement('th', { style: styles.th }, '状态'),
                     React.createElement('th', { style: styles.th }, '最后更新'),
                     React.createElement('th', { style: { ...styles.th, textAlign: 'right' } }, '操作'),
                   )),
@@ -212,30 +223,30 @@ window.__ModuleLoader__.load({
                     const rows = [];
                     rows.push(React.createElement('tr', { key: base.id },
                       React.createElement('td', { style: styles.td },
-                        React.createElement('div', { style: { fontWeight: 600 } }, base.name),
-                        React.createElement('div', { style: { ...styles.mono, color: T.text2, fontSize: 11 } },
+                        React.createElement('div', { style: { fontWeight: 600, ...styles.clamp2 }, title: base.name }, base.name),
+                        React.createElement('div', { style: { ...styles.mono, color: T.text2, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+                          title: `${base.id} · ${base.providerName ? `绑定 ${base.providerName}` : '未绑定模型'}` },
                           `${base.id} · ${base.providerName ? `绑定 ${base.providerName}` : '未绑定模型'}`),
                       ),
-                      React.createElement('td', { style: styles.td }, `${base.docCount} 个文档`),
+                      React.createElement('td', { style: styles.td }, `${base.docCount}`),
                       React.createElement('td', { style: styles.td },
                         busy
                           ? React.createElement('span', { style: styles.pill(T.brand) }, '索引中…')
                           : React.createElement('span', { style: styles.pill(st.color) }, st.text),
                       ),
-                      React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2 } },
+                      React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2, fontSize: 11.5 } },
                         base.updatedAt ? new Date(base.updatedAt).toLocaleString('zh-CN') : '—'),
-                      React.createElement('td', { style: { ...styles.td, textAlign: 'right', whiteSpace: 'nowrap' } },
-                        React.createElement('button', {
-                          type: 'button',
-                          style: { ...styles.btnSm, color: expanded ? T.brand : T.text, borderColor: expanded ? T.brand : T.border },
-                          onClick: () => { void toggleFolders(base.id); },
-                        }, expanded ? '📁 收起' : '📁 文件夹'),
-                        ' ',
-                        React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => setDialog({ kind: 'rename', base }) }, '重命名'),
-                        ' ',
-                        React.createElement('button', { type: 'button', style: styles.btnSm, disabled: busy, onClick: () => actions.reindex(base) }, '重建索引'),
-                        ' ',
-                        React.createElement('button', { type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error }, onClick: () => setDialog({ kind: 'delete', base }) }, '删除'),
+                      React.createElement('td', { style: { ...styles.td } },
+                        React.createElement('div', { style: styles.btnWrap },
+                          React.createElement('button', {
+                            type: 'button',
+                            style: { ...styles.btnSm, color: expanded ? T.brand : T.text, borderColor: expanded ? T.brand : T.border },
+                            onClick: () => { void toggleFolders(base.id); },
+                          }, expanded ? '📁 收起' : '📁 文件夹'),
+                          React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => setDialog({ kind: 'rename', base }) }, '重命名'),
+                          React.createElement('button', { type: 'button', style: styles.btnSm, disabled: busy, onClick: () => actions.reindex(base) }, '重建索引'),
+                          React.createElement('button', { type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error }, onClick: () => setDialog({ kind: 'delete', base }) }, '删除'),
+                        ),
                       ),
                     ));
                     if (expanded) {
@@ -446,21 +457,23 @@ window.__ModuleLoader__.load({
           '以下文件夹的文件已索引进本库；「删除索引」只移除插件内的索引记录，磁盘原文件不受影响。'),
         folders.map((f) => React.createElement('div', {
           key: f.folder,
-          style: { display: 'flex', gap: 10, alignItems: 'center', padding: '7px 10px', borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` },
+          style: { display: 'flex', gap: 10, alignItems: 'flex-start', padding: '7px 10px', borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` },
         },
           React.createElement('div', { style: { flex: 1, minWidth: 0 } },
-            React.createElement('div', { style: { ...styles.mono, fontSize: 12, wordBreak: 'break-all' } }, `📁 ${f.folder}`),
+            React.createElement('div', { style: { ...styles.mono, fontSize: 12, ...styles.clamp2 }, title: f.folder }, `📁 ${f.folder}`),
             React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 2 } },
               `${f.documents} 个文档 · ${f.chunks} 个分块`),
           ),
-          React.createElement('button', {
-            type: 'button', style: styles.btnSm, title: `重新扫描 ${f.folder}（增量索引新增文件）`,
-            onClick: () => onRescan(f.folder),
-          }, '↻ 重新扫描'),
-          React.createElement('button', {
-            type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error },
-            onClick: () => onDelete(base, f.folder),
-          }, '删除索引'),
+          React.createElement('div', { style: { display: 'flex', gap: 6, flex: 'none', flexWrap: 'wrap', justifyContent: 'flex-end' } },
+            React.createElement('button', {
+              type: 'button', style: styles.btnSm, title: `重新扫描 ${f.folder}（增量索引新增文件）`,
+              onClick: () => onRescan(f.folder),
+            }, '↻ 重新扫描'),
+            React.createElement('button', {
+              type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error },
+              onClick: () => onDelete(base, f.folder),
+            }, '删除索引'),
+          ),
         )),
       );
     }
@@ -550,7 +563,12 @@ window.__ModuleLoader__.load({
                       React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2 } }, p.model || '—'),
                       React.createElement('td', { style: styles.td },
                         testing
-                          ? React.createElement('span', { style: styles.pill(T.text2) }, '测试中…')
+                          ? React.createElement('div', null,
+                              React.createElement('span', { style: styles.pill(T.text2) }, '测试中…'),
+                              state.testProgress
+                                ? React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 4, maxWidth: 220 } }, state.testProgress)
+                                : null,
+                            )
                           : p.status === 'ok'
                             ? React.createElement('span', { style: styles.pill(T.ok) }, `✓ 正常 · ${p.latencyMs} ms`)
                             : p.status === 'error'
@@ -1021,6 +1039,7 @@ window.__ModuleLoader__.load({
       const [task, setTask] = React.useState(null);
       const [busyBaseId, setBusyBaseId] = React.useState('');
       const [testingProviderId, setTestingProviderId] = React.useState('');
+      const [testProgress, setTestProgress] = React.useState('');
       const [draftTestResult, setDraftTestResult] = React.useState(null);
       const [searchResult, setSearchResult] = React.useState(null);
       const [searching, setSearching] = React.useState(false);
@@ -1087,7 +1106,26 @@ window.__ModuleLoader__.load({
 
         async reindex(base) {
           setBusyBaseId(base.id);
-          setTask({ label: `正在重建「${base.name}」索引`, percent: 10 });
+          setTask({ label: `正在重建「${base.name}」索引…`, percent: 5 });
+          // 轮询进度：重建是长任务（逐文档重新向量化），一次性请求期间必须让用户
+          // 看到活的进度，否则「像卡死」。POST 仍同步返回（兼容），轮询只负责展示。
+          let pollTimer = null;
+          let lastPercent = 5;
+          const startPolling = () => {
+            pollTimer = setInterval(() => {
+              void (async () => {
+                try {
+                  const r = await api('/reindex/progress');
+                  const p = r.progress ?? {};
+                  if (p.running && typeof p.percent === 'number') {
+                    lastPercent = Math.max(lastPercent, p.percent);
+                    setTask({ label: `${p.stage || '正在重建'}（${p.done ?? 0}/${p.total ?? '?'}）`, percent: lastPercent });
+                  }
+                } catch { /* 轮询失败不打断主流程 */ }
+              })();
+            }, 800);
+          };
+          startPolling();
           try {
             const r = await api(`/bases/${encodeURIComponent(base.id)}/reindex`, { method: 'POST' });
             const rep = r.report ?? {};
@@ -1097,7 +1135,10 @@ window.__ModuleLoader__.load({
               : `重建完成：${rep.chunks} 个分块，维度 ${rep.dim || '未变'}`, rep.failed?.length > 0 ? 'error' : 'ok');
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
-          finally { setBusyBaseId(''); setTimeout(() => setTask(null), 1500); }
+          finally {
+            if (pollTimer) clearInterval(pollTimer);
+            setBusyBaseId(''); setTimeout(() => setTask(null), 1500);
+          }
         },
 
         async reindexAll() {
@@ -1159,6 +1200,26 @@ window.__ModuleLoader__.load({
 
         async testProvider(provider) {
           setTestingProviderId(provider.id);
+          // 测试期间轮询下载进度：ONNX 首测会真实下载模型（可达数百 MB），
+          // 静止的「测试中…」会被当成卡死；把活的百分比叠到按钮文案上。
+          let pollTimer = null;
+          const startPolling = () => {
+            pollTimer = setInterval(() => {
+              void (async () => {
+                try {
+                  const s = await api('/status');
+                  const d = (s.downloads ?? []).find((x) => x.model === provider.model);
+                  if (d && d.status === 'downloading') {
+                    setTestProgress(`${provider.name} 正在下载模型 ${d.progress}%`);
+                  } else if (d && d.status === 'ready') {
+                    setTestProgress(`${provider.name} 模型就绪，正在验证…`);
+                  }
+                } catch { /* 轮询失败不打断 */ }
+              })();
+            }, 800);
+          };
+          setTestProgress(`${provider.name} 测试中…`);
+          startPolling();
           try {
             const r = await api(`/providers/${encodeURIComponent(provider.id)}/test`, { method: 'POST' });
             const res = r.result ?? {};
@@ -1167,7 +1228,10 @@ window.__ModuleLoader__.load({
               : `连接失败：${res.error}${res.suggestion ? ` — ${res.suggestion}` : ''}`, res.ok ? 'ok' : 'error');
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
-          finally { setTestingProviderId(''); }
+          finally {
+            if (pollTimer) clearInterval(pollTimer);
+            setTestingProviderId(''); setTestProgress('');
+          }
         },
 
         // 草稿测试：不落库，只验证填写的端点是否可用。
@@ -1271,7 +1335,7 @@ window.__ModuleLoader__.load({
 
       const state = {
         tab, bases, providers, bindings, status, task, busyBaseId,
-        testingProviderId, draftTestResult, searchResult, searching,
+        testingProviderId, testProgress, draftTestResult, searchResult, searching,
       };
 
       return React.createElement('div', { style: styles.page },
