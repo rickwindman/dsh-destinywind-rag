@@ -1,0 +1,8 @@
+{
+  "name": "知识库",
+  "description": "管理知识库、向量模型绑定与检索测试；零配置开箱可用。",
+  "tabBases": "知识库列表",
+  "tabProviders": "向量模型",
+  "tabSearch": "检索测试",
+  "tabStatus": "状态"
+}
