@@ -201,6 +201,18 @@ function makeHandler(getConfig) {
         return json(res, 200, { ok: true, ...svc.deleteDocument(decodeURIComponent(docMatch[1])) });
       }
 
+      // ── 来源文件夹视图（知识库 → 文件夹）──
+      const foldersMatch = /^\/bases\/([^/]+)\/folders$/.exec(path);
+      if (foldersMatch && method === 'GET') {
+        return json(res, 200, { ok: true, folders: svc.listSourceFolders(decodeURIComponent(foldersMatch[1])) });
+      }
+      const folderDelMatch = /^\/bases\/([^/]+)\/folders\/delete$/.exec(path);
+      if (folderDelMatch && method === 'POST') {
+        const body = await readJsonBody(req);
+        const r = svc.deleteSourceFolder(decodeURIComponent(folderDelMatch[1]), String(body?.folder ?? ''));
+        return json(res, 200, { ok: true, ...r, note: '只删除了知识库内的索引记录，磁盘上的原文件不受影响。' });
+      }
+
       // ── provider ──
       if (method === 'GET' && path === '/providers') {
         return json(res, 200, { ok: true, providers: svc.listProviders(), bindings: svc.listBindings() });
