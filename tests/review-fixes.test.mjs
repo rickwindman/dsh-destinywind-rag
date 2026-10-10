@@ -395,3 +395,54 @@ test('长任务P2: 未开始重建时进度快照为安全默认值', () => {
   assert.deepEqual(svc.getReindexProgress(), { running: false });
   svc.close();
 });
+
+// ─────────────── 草稿泄漏 / 重复 provider（用户截图实证） ───────────────
+
+test('草稿U1: testProviderSpec 纯函数零落库（草稿测试无副作用）', async () => {
+  const svc = memService();
+  const before = svc.store.listProviders().length;
+  // 随便测一个必然失败的 spec：不能创建任何记录
+  const r = await svc.testProviderSpec({ kind: 'openai', endpoint: 'http://127.0.0.1:1/v1', model: 'm', apiKey: '' });
+  assert.equal(r.ok, false);
+  assert.equal(svc.store.listProviders().length, before, '测试 spec 绝不落库');
+  svc.close();
+});
+
+test('草稿U2: 自愈清理历史 __draft_ 垃圾记录（经落盘重开触发）', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'rag-draft-'));
+  try {
+    const file = join(dir, 't.sqlite');
+    const s1 = new KnowledgeService({ storePath: file });
+    s1.store.createProvider({ kind: 'onnx', name: '__draft_1791', model: 'x' });
+    s1.store.createProvider({ kind: 'onnx', name: '__draft_1792', model: 'x' });
+    s1.store.createProvider({ kind: 'onnx', name: '正常记录', model: 'x' });
+    s1.close();
+
+    // 重新打开：构造函数的自愈应清掉 __draft_ 但保留正常记录
+    const s2 = new KnowledgeService({ storePath: file });
+    const names = s2.store.listProviders().map((p) => p.name);
+    assert.equal(names.includes('__draft_1791'), false, '__draft_ 应被清理');
+    assert.equal(names.includes('__draft_1792'), false);
+    assert.equal(names.includes('正常记录'), true, '正常记录必须保留');
+    s2.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('草稿U3: createProvider 同配置去重复用', () => {
+  const svc = memService();
+  const a = svc.createProvider({ kind: 'ollama', name: '千问', endpoint: 'http://127.0.0.1:11434', model: 'bge-m3' });
+  const b = svc.createProvider({ kind: 'ollama', name: '千问2', endpoint: 'http://127.0.0.1:11434', model: 'bge-m3' });
+  assert.equal(b.reused, true, '第二次创建应复用而非新建');
+  assert.equal(a.id, b.id);
+  assert.equal(svc.store.listProviders().length, 1, '同配置只留一条');
+  // 不同配置正常新建
+  const c = svc.createProvider({ kind: 'onnx', name: '本地', model: 'other' });
+  assert.notEqual(c.reused, true);
+  assert.equal(svc.store.listProviders().length, 2);
+  svc.close();
+});
