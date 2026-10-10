@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DeepSeek Harness · 设置 · 知识库（RAG 插件 UI 原型）</title>
+<style>
+  :root{
+    --brand:#3b6ef6;
+    --brand-soft:rgba(59,110,246,.10);
+    --bg:#f6f7f9;
+    --panel:#ffffff;
+    --border:#e5e7eb;
+    --border-strong:#d6dae1;
+    --text:#1f2430;
+    --muted:#6b7280;
+    --faint:#9aa1ad;
+    --ok:#16a34a;
+    --ok-soft:rgba(22,163,74,.10);
+    --warn:#d97706;
+    --warn-soft:rgba(217,119,6,.12);
+    --err:#dc2626;
+    --err-soft:rgba(220,38,38,.10);
+    --radius:10px;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 8px 24px rgba(16,24,40,.06);
+    --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.55 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  .app{display:flex;height:100vh;overflow:hidden}
+
+  /* ── 左侧导航（模拟 Harness 设置页） ── */
+  .sidebar{width:236px;flex:0 0 236px;background:#fbfbfc;border-right:1px solid var(--border);
+    display:flex;flex-direction:column;padding:14px 10px;overflow:auto}
+  .brand{display:flex;align-items:center;gap:9px;padding:4px 10px 14px}
+  .brand-logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#3b6ef6,#7c5cf6);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700}
+  .brand-name{font-weight:600;font-size:13.5px}
+  .nav-group{font-size:11px;color:var(--faint);padding:10px 10px 5px;letter-spacing:.04em}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;
+    color:#3f4653;font-size:13.5px;user-select:none}
+  .nav-item:hover{background:#eef0f4}
+  .nav-item.active{background:var(--brand-soft);color:var(--brand);font-weight:600}
+  .nav-ico{width:16px;text-align:center;opacity:.85}
+  .badge-new{margin-left:auto;font-size:10px;background:var(--brand);color:#fff;border-radius:999px;padding:1px 6px}
+
+  /* ── 主区域 ── */
+  .main{flex:1;overflow:auto;padding:22px 26px 70px}
+  .page-head h1{margin:0 0 4px;font-size:19px}
+  .page-head p{margin:0;color:var(--muted);font-size:13px}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:18px 0}
+  .tab{padding:9px 15px;border:0;background:transparent;cursor:pointer;color:var(--muted);
+    border-bottom:2px solid transparent;font-size:14px;font-family:inherit}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
+  .card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .card-title{font-weight:600;font-size:14px}
+  .card-sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .card-body{padding:16px}
+  .card-body.tight{padding:0}
+
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;
+    border:1px solid var(--border-strong);background:#fff;color:var(--text);cursor:pointer;
+    font-size:13px;font-family:inherit;white-space:nowrap}
+  .btn:hover{background:#f4f5f7}
+  .btn-primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn-primary:hover{background:#2f5fe0}
+  .btn-danger{color:var(--err);border-color:rgba(220,38,38,.35)}
+  .btn-danger:hover{background:var(--err-soft)}
+  .btn-sm{padding:3px 9px;font-size:12px;border-radius:6px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-link{border:0;background:none;color:var(--brand);padding:2px 4px;cursor:pointer;font-size:12.5px;font-family:inherit}
+  .btn-link:hover{text-decoration:underline}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+  th{color:var(--muted);font-weight:500;font-size:12.5px;background:#fafbfc;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fafbfd}
+  .t-right{text-align:right}
+  .nowrap{white-space:nowrap}
+  .mono{font-family:var(--mono);font-size:12.5px}
+
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 8px}
+  .dot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+  .dot.err{background:var(--err);box-shadow:0 0 0 3px var(--err-soft)}
+  .dot.wait{background:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .pill.ok{background:var(--ok-soft);color:#15803d}
+  .pill.warn{background:var(--warn-soft);color:#b45309}
+  .pill.err{background:var(--err-soft);color:#b91c1c}
+  .pill.info{background:var(--brand-soft);color:#1d4ed8}
+  .pill.gray{background:#f1f2f5;color:#5b6270}
+
+  .bar{height:6px;background:#eceef2;border-radius:999px;overflow:hidden;min-width:90px}
+  .bar > i{display:block;height:100%;background:var(--brand);border-radius:999px;transition:width .35s ease}
+  .bar.slim{height:4px}
+
+  .iconsq{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-size:13px;flex:0 0 26px}
+  .iconsq.onnx{background:rgba(22,163,74,.12);color:#15803d}
+  .iconsq.openai{background:rgba(59,110,246,.12);color:#1d4ed8}
+  .iconsq.custom{background:rgba(124,92,246,.14);color:#6d3ff0}
+  .iconsq.ollama{background:rgba(217,119,6,.14);color:#b45309}
+
+  .modal-mask{position:fixed;inset:0;background:rgba(17,24,39,.42);display:flex;
+    align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal{background:#fff;border-radius:12px;width:min(580px,94vw);
+    box-shadow:0 24px 60px rgba(16,24,40,.28);overflow:hidden;animation:pop .16s ease}
+  @keyframes pop{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:none}}
+  .modal-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600;font-size:14.5px}
+  .modal-body{padding:18px;max-height:62vh;overflow:auto}
+  .modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;
+    border-top:1px solid var(--border);background:#fafbfc}
+
+  .field{margin-bottom:13px}
+  .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px}
+  .field .hint{font-size:12px;color:var(--faint);margin-top:4px}
+  input[type=text],input[type=password],select,textarea{width:100%;padding:7px 10px;
+    border:1px solid var(--border-strong);border-radius:8px;font-size:13.5px;background:#fff;
+    color:var(--text);font-family:inherit}
+  textarea{resize:vertical;min-height:70px}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+  input:disabled,select:disabled{background:#f4f5f7;color:var(--faint)}
+  .row{display:flex;gap:8px;align-items:center}
+  .row.grow > *:first-child{flex:1}
+
+  .toast-wrap{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:90}
+  .toast{background:#1f2430;color:#fff;padding:9px 14px;border-radius:8px;font-size:13px;
+    box-shadow:var(--shadow);animation:in .18s ease;max-width:380px}
+  .toast.ok{background:#166534}
+  .toast.err{background:#991b1b}
+  @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  mark{background:#fff2a8;padding:0 2px;border-radius:3px}
+  .result{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff}
+  .result:hover{border-color:var(--border-strong)}
+  .result-top{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+  .rank{width:22px;height:22px;border-radius:6px;background:var(--brand-soft);color:#1d4ed8;
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 22px}
+  .excerpt{color:#374151;font-size:13.5px;line-height:1.65}
+  .source{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+  .source .path{font-family:var(--mono);font-size:12px;color:#374151;background:#f4f5f7;
+    padding:2px 6px;border-radius:5px}
+
+  .taskbar{border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px 14px;
+    margin-bottom:16px;box-shadow:var(--shadow)}
+  .taskbar .line{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    font-size:13px;margin-bottom:8px}
+  .empty{padding:34px 20px;text-align:center;color:var(--muted)}
+  .empty .big{font-size:28px;margin-bottom:8px}
+  .empty h3{margin:0 0 6px;font-size:15px;color:var(--text)}
+  .empty p{margin:0 0 14px;font-size:13px}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:13px}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0}
+  .placeholder{padding:60px 20px;text-align:center;color:var(--muted)}
+  .checkline{display:flex;align-items:center;gap:7px;font-size:12.5px;margin-top:6px}
+  .dirlist{border:1px solid var(--border);border-radius:8px;max-height:230px;overflow:auto}
+  .dirrow{padding:7px 11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;
+    border-bottom:1px solid var(--border)}
+  .dirrow:last-child{border-bottom:0}
+  .dirrow:hover{background:#f4f6fa}
+  .dirrow.sel{background:var(--brand-soft);color:var(--brand)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">DS</div>
+      <div class="brand-name">DeepSeek Harness</div>
+    </div>
+    <div class="nav-group">设置</div>
+    <div class="nav-item" data-nav="general"><span class="nav-ico">⚙</span>常规</div>
+    <div class="nav-item" data-nav="appearance"><span class="nav-ico">🎨</span>外观</div>
+    <div class="nav-item" data-nav="model"><span class="nav-ico">🧠</span>模型</div>
+    <div class="nav-item" data-nav="plugins"><span class="nav-ico">🧩</span>插件</div>
+    <div class="nav-item" data-nav="memory"><span class="nav-ico">💾</span>记忆</div>
+    <div class="nav-item active" data-nav="knowledge"><span class="nav-ico">📚</span>知识库<span class="badge-new">新增</span></div>
+    <div class="nav-item" data-nav="about"><span class="nav-ico">ℹ</span>关于</div>
+  </aside>
+
+  <main class="main" id="main"></main>
+</div>
+<div id="modal-root"></div>
+<div class="toast-wrap" id="toast-root"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ───────────────────────── 模拟数据 ─────────────────────────
+  var state = {
+    nav: 'knowledge',
+    tab: 'bases',
+    task: null,            // { label, percent } 全局索引任务
+    emptyDemo: false,      // 状态页：模拟知识库为空
+    search: { q: '', scope: 'all', ran: false, elapsed: 0, results: [] },
+    providers: [
+      { id: 'p1', kind: 'onnx',   name: '本地 ONNX（内置）',        endpoint: '（本地，无需端点）', model: 'Qwen3-Embedding-0.6B-ONNX', dim: 1024, ok: true,  latency: 12 },
+      { id: 'p2', kind: 'openai', name: 'OpenAI 兼容 · 公司网关',   endpoint: 'https://api.internal.corp/v1', model: 'text-embedding-3-small', dim: 1536, ok: true, latency: 184 },
+      { id: 'p3', kind: 'ollama', name: 'Ollama 本地',              endpoint: 'http://127.0.0.1:11434', model: 'bge-m3', dim: 1024, ok: false, latency: 0, err: '连接被拒绝：本机 11434 端口没有 Ollama 服务在监听' },
+      { id: 'p4', kind: 'custom', name: '自定义 HTTP · 自建向量服务', endpoint: 'http://10.0.0.8:9000/embed', model: 'custom-v2', dim: 768, ok: true, latency: 96 }
+    ],
+    bases: [
+      { id: 'kb1', name: '产品手册', docs: 42, status: 'ready',    updated: '2026-02-10 14:32', providerId: 'p1', indexDim: 1024, progress: 0 },
+      { id: 'kb2', name: '内部规范', docs: 18, status: 'indexing', updated: '2026-02-11 09:05', providerId: 'p2', indexDim: 1536, progress: 64 },
+      { id: 'kb3', name: '论文库',   docs: 7,  status: 'stale',    updated: '2026-01-28 20:11', providerId: 'p3', indexDim: 768,  progress: 0 }
+    ],
+    downloads: [
+      { id: 'd1', model: 'Qwen3-Embedding-0.6B-ONNX', percent: 58, state: 'downloading', note: '正在下载模型权重（约 585 MB）' },
+      { id: 'd2', model: 'Xenova/bge-reranker-base',  percent: 0,  state: 'failed',
+        reason: '下载中断：连接 huggingface.co 超时（网络不可达或需要代理）',
+        suggestion: '可改用「镜像源下载」或「跳过重排序」继续使用向量+关键词检索。' }
+    ]
+  };
+
+  var KIND_META = {
+    openai: { label: '大模型向量引擎 · OpenAI 兼容端点', short: 'OpenAI 兼容', icon: '☁', cls: 'openai' },
+    custom: { label: '大模型向量引擎 · 自定义 HTTP 端点', short: '自定义 HTTP', icon: '⇄', cls: 'custom' },
+    onnx:   { label: '本地向量模型 · 本地 ONNX',         short: '本地 ONNX',  icon: '▣', cls: 'onnx' },
+    ollama: { label: '本地向量模型 · Ollama',            short: 'Ollama',     icon: '◉', cls: 'ollama' }
+  };
+
+  var STATUS_META = {
+    ready:    { text: '就绪',   cls: 'ok' },
+    indexing: { text: '索引中', cls: 'info' },
+    stale:    { text: '需重建', cls: 'warn' },
+    failed:   { text: '索引失败', cls: 'err' }
+  };
+
+  // ───────────────────────── 工具函数 ─────────────────────────
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function $(id) { return document.getElementById(id); }
+  function baseById(id) { for (var i = 0; i < state.bases.length; i++) if (state.bases[i].id === id) return state.bases[i]; return null; }
+  function providerById(id) { for (var i = 0; i < state.providers.length; i++) if (state.providers[i].id === id) return state.providers[i]; return null; }
+
+  function toast(msg, type) {
+    var el = document.createElement('div');
+    el.className = 'toast' + (type ? ' ' + type : '');
+    el.textContent = msg;
+    $('toast-root').appendChild(el);
+    setTimeout(function () { el.remove(); }, 3200);
+  }
+
+  // ───────────────────────── 模态框 ─────────────────────────
+  function openModal(opts) {
+    var mask = document.createElement('div');
+    mask.className = 'modal-mask';
+    mask.innerHTML =
+      '<div class="modal" role="dialog">' +
+        '<div class="modal-head">' + esc(opts.title) + '</div>' +
+        '<div class="modal-body">' + (opts.body || '') + '</div>' +
+        '<div class="modal-foot"></div>' +
+      '</div>';
+    var foot = mask.querySelector('.modal-foot');
+    var bodyEl = mask.querySelector('.modal-body');
+
+    var btns = opts.buttons || [{ label: '关闭', kind: 'ghost' }];
+    btns.forEach(function (b) {
+      var btn = document.createElement('button');
+      btn.className = 'btn' + (b.kind === 'primary' ? ' btn-primary' : b.kind === 'danger' ? ' btn-danger' : '');
+      btn.textContent = b.label;
+      btn.addEventListener('click', function () {
+        if (!b.onClick || b.onClick({ close: close, setBody: setBody, mask: mask }) !== false) close();
+      });
+      foot.appendChild(btn);
+    });
+
+    function close() { mask.remove(); document.removeEventListener('keydown', onKey); }
+    function setBody(html) { bodyEl.innerHTML = html; }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+
+    mask.addEventListener('mousedown', function (e) { if (e.target === mask && opts.dismissable !== false) close(); });
+    document.addEventListener('keydown', onKey);
+    $('modal-root').appendChild(mask);
+    var first = mask.querySelector('input,select,textarea');
+    if (first) setTimeout(function () { first.focus(); }, 30);
+    return { close: close, setBody: setBody, body: bodyEl };
+  }
+
+  // ───────────────────────── 进度模拟 ─────────────────────────
+  var timers = [];
+  function startProgress(label, totalMs, onDone) {
+    var started = Date.now();
+    state.task = { label: label, percent: 0 };
+    render();
+    var t = setInterval(function () {
+      var pct = Math.min(100, Math.round((Date.now() - started) / totalMs * 100));
+      state.task.percent = pct;
+      render();
+      if (pct >= 100) {
+        clearInterval(t);
+        state.task = null;
+        render();
+        if (onDone) onDone();
+      }
+    }, 140);
+    timers.push(t);
+  }
+  function clearTimers() { timers.forEach(clearInterval); timers = []; }
+
+  function indexBase(base, label) {
+    base.status = 'indexing';
+    base.progress = 0;
+    startProgress(label, 4200, function () {
+      base.status = 'ready';
+      base.progress = 100;
+      base.indexDim = (providerById(base.providerId) || { dim: base.indexDim }).dim;
+      base.updated = nowStr();
+      render();
+      toast('「' + base.name + '」索引重建完成', 'ok');
+    });
+  }
+  function nowStr() {
+    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  // ───────────────────────── 渲染：外壳 ─────────────────────────
+  function render() {
+    if (state.nav !== 'knowledge') { renderPlaceholder(); return; }
+    $('main').innerHTML =
+      '<div class="page-head">' +
+        '<h1>知识库</h1>' +
+        '<p>管理知识库、向量模型绑定与检索测试。本页由插件 dsh-destinywind-rag 注入设置页。</p>' +
+      '</div>' +
+      '<nav class="tabs">' +
+        tabBtn('bases', '知识库列表') +
+        tabBtn('providers', '向量模型') +
+        tabBtn('search', '检索测试') +
+        tabBtn('status', '状态') +
+      '</nav>' +
+      '<div id="tab-body"></div>';
+    renderTab();
+  }
+
+  function tabBtn(key, label) {
+    return '<button class="tab' + (state.tab === key ? ' active' : '') + '" data-tab="' + key + '">' + esc(label) + '</button>';
+  }
+
+  function renderPlaceholder() {
+    var names = { general: '常规', appearance: '外观', model: '模型', plugins: '插件', memory: '记忆', about: '关于' };
+    $('main').innerHTML =
+      '<div class="page-head"><h1>' + esc(names[state.nav] || '') + '</h1>' +
+      '<p>这是 Harness 原有设置页（原型未实现），用于对照左侧导航新增的【知识库】栏位置。</p></div>' +
+      '<div class="card"><div class="placeholder">请点击左侧导航中的「知识库」查看本插件原型界面。</div></div>';
+  }
+
+  function renderTab() {
+    var body = $('tab-body');
+    if (!body) return;
+    if (state.tab === 'bases') body.innerHTML = viewBases();
+    else if (state.tab === 'providers') body.innerHTML = viewProviders();
+    else if (state.tab === 'search') body.innerHTML = viewSearch();
+    else body.innerHTML = viewStatus();
+  }
+
+  // ───────────────────────── 标签页 1：知识库列表 ─────────────────────────
+  function viewBases() {
+    var html = '';
+    if (state.task) {
+      html +=
+        '<div class="taskbar">' +
+          '<div class="line"><span>⏳ ' + esc(state.task.label) + '</span><span class="mono">' + state.task.percent + '%</span></div>' +
+          '<div class="bar"><i style="width:' + state.task.percent + '%"></i></div>' +
+        '</div>';
+    }
+    html +=
+      '<div class="card">' +
+        '<div class="card-head">' +
+          '<div><div class="card-title">知识库（' + state.bases.length + '）</div>' +
+          '<div class="card-sub">每个知识库可独立绑定向量模型；修改绑定后需重建索引。</div></div>' +
+          '<div class="row">' +
+            '<button class="btn" data-act="add-folder">📁 添加文件夹</button>' +
+            '<button class="btn" data-act="reindex-all">↻ 重建索引</button>' +
+            '<button class="btn btn-primary" data-act="new-base">＋ 新建知识库</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card-body tight">' + basesTable() + '</div>' +
+      '</div>';
+    return html;
+  }
+
+  function basesTable() {
+    if (state.emptyDemo || state.bases.length === 0) {
+      return '<div class="empty"><div class="big">📚</div><h3>还没有知识库</h3>' +
+        '<p>添加一个文件夹，插件会自动解析其中的 PDF / DOCX / PPTX / Markdown / TXT 并建立索引。</p>' +
+        '<button class="btn btn-primary" data-act="add-folder">📁 添加文件夹</button></div>';
+    }
+    var rows = state.bases.map(function (b) {
+      var st = STATUS_META[b.status] || STATUS_META.ready;
+      var statusCell;
+      if (b.status === 'indexing') {
+        statusCell = '<span class="pill info">索引中 ' + b.progress + '%</span>' +
+          '<div class="bar slim" style="margin-top:6px"><i style="width:' + b.progress + '%"></i></div>';
+      } else {
+        statusCell = '<span class="pill ' + st.cls + '">' + st.text + '</span>';
+      }
+      var p = providerById(b.providerId);
+      return '<tr>' +
+        '<td><div style="font-weight:600">' + esc(b.name) + '</div>' +
+            '<div class="mono" style="color:var(--faint);font-size:11.5px">' + esc(b.id) + ' · 绑定 ' + esc(p ? p.name : '未绑定') + '</div></td>' +
+        '<td class="nowrap">' + b.docs + ' 个文档</td>' +
+        '<td class="nowrap">' + statusCell + '</td>' +
+        '<td class="nowrap mono" style="font-size:12.5px">' + esc(b.updated) + '</td>' +
+        '<td class="t-right nowrap">' +
+          '<button class="btn btn-sm" data-act="rename-base" data-id="' + b.id + '">重命名</button> ' +
+          '<button class="btn btn-sm" data-act="reindex-base" data-id="' + b.id + '">重建索引</button> ' +
+          '<button class="btn btn-sm btn-danger" data-act="delete-base" data-id="' + b.id + '">删除</button>' +
+        '</td></tr>';
+    }).join('');
+    return '<table><thead><tr>' +
+      '<th>名称</th><th>文档数量</th><th>索引状态</th><th>最后更新时间</th><th class="t-right">操作</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // ───────────────────────── 标签页 2：向量模型 ─────────────────────────
+  function viewProviders() {
+    var rows = state.providers.map(function (p) {
+      var meta = KIND_META[p.kind];
+      return '<tr>' +
+        '<td><div class="row"><span class="iconsq ' + meta.cls + '">' + meta.icon + '</span>' +
+          '<div><div style="font-weight:600">' + esc(p.name) + '</div>' +
+          '<div style="color:var(--faint);font-size:11.5px">' + esc(meta.short) + '</div></div></div></td>' +
+        '<td class="mono" style="font-size:12px;color:#4b5563">' + esc(p.endpoint) + '</td>' +
+        '<td class="mono" style="font-size:12px;color:#4b5563">' + esc(p.model) + '</td>' +
+        '<td class="nowrap" id="st-' + p.id + '">' + statusLight(p) + '</td>' +
+        '<td class="t-right nowrap">' +
+          '<button class="btn btn-sm" data-act="edit-provider" data-id="' + p.id + '">编辑</button> ' +
+          '<button class="btn btn-sm" data-act="test-provider" data-id="' + p.id + '">测试连接</button> ' +
+          '<button class="btn btn-sm btn-danger" data-act="delete-provider" data-id="' + p.id + '">删除</button>' +
+        '</td></tr>';
+    }).join('');
+
+    var bindRows = state.bases.map(function (b) {
+      var p = providerById(b.providerId);
+      var dimOk = p && p.dim === b.indexDim;
+      var dimCell;
+      if (b.status === 'indexing') {
+        dimCell = '<span class="pill info">重建中 ' + b.progress + '%</span>';
+      } else if (!p) {
+        dimCell = '<span class="pill gray">未绑定</span>';
+      } else if (dimOk) {
+        dimCell = '<span class="mono">' + p.dim + '</span> <span class="pill ok">维度一致</span>';
+      } else {
+        dimCell = '<span class="mono">' + p.dim + '</span> <span class="pill warn">需重建（索引 ' + b.indexDim + ' 维）</span>';
+      }
+      return '<tr>' +
+        '<td style="font-weight:600">' + esc(b.name) + '</td>' +
+        '<td>' + (p ? '<span class="row"><span class="dot ' + (p.ok ? 'ok' : 'err') + '"></span>' + esc(p.name) + '</span>' : '<span style="color:var(--faint)">—</span>') + '</td>' +
+        '<td class="mono" style="font-size:12px">' + esc(p ? p.model : '—') + '</td>' +
+        '<td class="nowrap">' + dimCell + '</td>' +
+        '<td class="t-right nowrap">' +
+          '<button class="btn btn-sm" data-act="change-model" data-id="' + b.id + '">更换模型</button>' +
+        '</td></tr>';
+    }).join('');
+
+    return '' +
+      '<div class="card">' +
+        '<div class="card-head">' +
+          '<div><div class="card-title">向量引擎（' + state.providers.length + '）</div>' +
+          '<div class="card-sub">支持大模型向量引擎（OpenAI 兼容 / 自定义 HTTP）与本地向量模型（ONNX / Ollama）。</div></div>' +
+          '<button class="btn btn-primary" data-act="new-provider">＋ 新增 provider</button>' +
+        '</div>' +
+        '<div class="card-body tight"><table><thead><tr>' +
+          '<th>类型 / 名称</th><th>端点</th><th>模型</th><th>状态</th><th class="t-right">操作</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="card-head"><div><div class="card-title">知识库 ↔ 模型绑定</div>' +
+        '<div class="card-sub">更换模型后需重建索引；维度与已建索引不一致时会提示「需重建」。</div></div></div>' +
+        '<div class="card-body tight"><table><thead><tr>' +
+          '<th>知识库名称</th><th>绑定的 provider</th><th>模型名</th><th>向量维度</th><th class="t-right">操作</th>' +
+        '</tr></thead><tbody>' + bindRows + '</tbody></table></div>' +
+      '</div>';
+  }
+
+  function statusLight(p) {
+    if (p.testing) return '<span class="pill gray">测试中…</span>';
+    if (p.testResult === 'ok') {
+      return '<span class="pill ok">✓ 连接正常 · ' + p.latency + ' ms</span>';
+    }
+    if (p.testResult === 'err') {
+      return '<span class="pill err">✗ ' + esc(p.err || '连接失败') + '</span>';
+    }
+    return '<span class="row"><span class="dot ' + (p.ok ? 'ok' : 'err') + '"></span>' +
+      (p.ok ? '<span style="color:var(--muted);font-size:12.5px">可用</span>' :
+              '<span style="color:var(--muted);font-size:12.5px">不可用</span>') + '</span>';
+  }
+
+  // ───────────────────────── 标签页 3：检索测试 ─────────────────────────
+  function viewSearch() {
+    var opts = '<option value="all">全部知识库</option>' + state.bases.map(function (b) {
+      return '<option value="' + b.id + '"' + (state.search.scope === b.id ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+    }).join('');
+
+    var html = '' +
+      '<div class="card">' +
+        '<div class="card-body">' +
+          '<div class="row" style="gap:10px">' +
+            '<input type="text" id="q" placeholder="输入查询语句，例如：如何配置部署环境？" value="' + esc(state.search.q) + '" />' +
+            '<select id="scope" style="width:190px">' + opts + '</select>' +
+            '<button class="btn btn-primary" data-act="run-search">检索</button>' +
+          '</div>' +
+          '<div class="hint" style="margin-top:8px;color:var(--faint);font-size:12px">' +
+            '检索方式：BM25 关键词 + 向量语义 → RRF 融合（可选重排序）。</div>' +
+        '</div>' +
+      '</div>';
+
+    if (!state.search.ran) {
+      return html + '<div class="card"><div class="empty"><div class="big">🔍</div>' +
+        '<h3>输入查询开始检索测试</h3><p>可指定知识库范围；不指定则检索全部知识库。</p></div></div>';
+    }
+
+    if (state.search.results.length === 0) {
+      return html + '<div class="card"><div class="empty"><div class="big">🫙</div>' +
+        '<h3>没有召回结果</h3><p>可尝试更换关键词、放宽相似度阈值，或确认目标知识库已完成索引。</p></div></div>';
+    }
+
+    var items = state.search.results.map(function (r, i) {
+      return '<div class="result">' +
+        '<div class="result-top">' +
+          '<span class="rank">' + (i + 1) + '</span>' +
+          '<span class="pill info">相似度 ' + r.score.toFixed(3) + '</span>' +
+          '<span class="pill gray">' + esc(r.base) + '</span>' +
+          '<span class="pill gray">BM25 ' + r.bm25.toFixed(2) + '</span>' +
+        '</div>' +
+        '<div class="excerpt">' + r.excerpt + '</div>' +
+        '<div class="source">来源：<span class="path">' + esc(r.path) + '</span>' +
+          '<span>· ' + esc(r.locator) + '</span>' +
+          '<button class="btn-link" data-act="open-source" data-path="' + esc(r.path) + '">打开原文件</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    return html +
+      '<div class="card"><div class="card-body">' + items + '</div>' +
+      '<div class="card-head" style="border-top:1px solid var(--border);border-bottom:0;color:var(--muted);font-size:12.5px">' +
+        '<span>共召回 ' + state.search.results.length + ' 条结果（已按相似度排序）</span>' +
+        '<span class="mono">检索耗时 ' + state.search.elapsed + ' ms</span>' +
+      '</div></div>';
+  }
+
+  // ───────────────────────── 标签页 4：状态 ─────────────────────────
+  function viewStatus() {
+    var html = '';
+
+    html += '<div class="card"><div class="card-head">' +
+      '<div><div class="card-title">本地模型</div>' +
+      '<div class="card-sub">首次使用本地向量模型时会自动下载权重，下载完成前检索会自动降级为关键词模式。</div></div>' +
+      '<button class="btn btn-sm" data-act="toggle-empty">' +
+        (state.emptyDemo ? '取消「知识库为空」演示' : '演示「知识库为空」') + '</button>' +
+      '</div><div class="card-body">';
+
+    if (state.downloads.length === 0) {
+      html += '<div style="color:var(--muted);font-size:13px">暂无本地模型任务。</div>';
+    }
+    state.downloads.forEach(function (d) {
+      if (d.state === 'downloading') {
+        html += '<div style="margin-bottom:16px">' +
+          '<div class="line" style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">' +
+            '<span><b>' + esc(d.model) + '</b> <span style="color:var(--faint);font-size:12px">' + esc(d.note) + '</span></span>' +
+            '<span class="row"><span class="mono">' + d.percent + '%</span>' +
+            '<button class="btn btn-sm" data-act="cancel-download" data-id="' + d.id + '">取消</button></span>' +
+          '</div>' +
+          '<div class="bar"><i style="width:' + d.percent + '%"></i></div>' +
+        '</div>';
+      } else if (d.state === 'failed') {
+        html += '<div style="border:1px solid rgba(220,38,38,.3);background:var(--err-soft);border-radius:10px;padding:12px 14px">' +
+          '<div style="font-weight:600;color:#b91c1c;margin-bottom:6px">✗ ' + esc(d.model) + ' 下载失败</div>' +
+          '<div style="font-size:13px;margin-bottom:4px">原因：' + esc(d.reason) + '</div>' +
+          '<div style="font-size:13px;color:var(--muted);margin-bottom:10px">建议：' + esc(d.suggestion) + '</div>' +
+          '<div class="row">' +
+            '<button class="btn btn-sm btn-primary" data-act="retry-mirror" data-id="' + d.id + '">使用镜像源重试</button>' +
+            '<button class="btn btn-sm" data-act="skip-rerank" data-id="' + d.id + '">跳过重排序，仅用向量+关键词</button>' +
+            '<button class="btn btn-sm" data-act="use-remote-rerank" data-id="' + d.id + '">改用远程重排序 API</button>' +
+          '</div>' +
+        '</div>';
+      }
+    });
+    html += '</div></div>';
+
+    if (state.emptyDemo || state.bases.length === 0) {
+      html += '<div class="card"><div class="empty"><div class="big">📚</div>' +
+        '<h3>知识库为空</h3>' +
+        '<p>还没有任何已索引的文档。添加一个文件夹后，插件会自动解析并建立索引，随后即可在对话中检索。</p>' +
+        '<button class="btn btn-primary" data-act="add-folder">📁 添加文件夹</button></div></div>';
+    } else {
+      var ready = state.bases.filter(function (b) { return b.status === 'ready'; }).length;
+      var docs = state.bases.reduce(function (s, b) { return s + b.docs; }, 0);
+      html += '<div class="card"><div class="card-head"><div class="card-title">运行概览</div></div>' +
+        '<div class="card-body"><dl class="kv">' +
+          '<dt>知识库</dt><dd>' + state.bases.length + ' 个（' + ready + ' 个就绪）</dd>' +
+          '<dt>已索引文档</dt><dd>' + docs + ' 个</dd>' +
+          '<dt>向量引擎</dt><dd>' + state.providers.length + ' 个（' + state.providers.filter(function (p) { return p.ok; }).length + ' 个可用）</dd>' +
+          '<dt>默认检索</dt><dd>混合检索（BM25 + 向量 → RRF 融合）</dd>' +
+          '<dt>重排序</dt><dd>' + (state.downloads.some(function (d) { return d.state === 'failed'; }) ? '未启用（本地 reranker 不可用）' : '本地 bge-reranker') + '</dd>' +
+        '</dl></div></div>';
+    }
+    return html;
+  }
+
+  // ───────────────────────── 交互：导航与标签页 ─────────────────────────
+  document.addEventListener('click', function (e) {
+    var navEl = e.target.closest('[data-nav]');
+    if (navEl) {
+      state.nav = navEl.getAttribute('data-nav');
+      document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.toggle('active', n === navEl); });
+      clearTimers();
+      state.task = null;
+      render();
+      return;
+    }
+    var tabEl = e.target.closest('[data-tab]');
+    if (tabEl) { state.tab = tabEl.getAttribute('data-tab'); render(); return; }
+
+    var actEl = e.target.closest('[data-act]');
+    if (!actEl) return;
+    var act = actEl.getAttribute('data-act');
+    var id = actEl.getAttribute('data-id');
+    handleAction(act, id, actEl, e);
+  });
+
+  function handleAction(act, id, el, e) {
+    // 标签页 1
+    if (act === 'new-base') return dlgNewBase();
+    if (act === 'rename-base') return dlgRename(baseById(id));
+    if (act === 'delete-base') return dlgDeleteBase(baseById(id));
+    if (act === 'reindex-base') { var b = baseById(id); indexBase(b, '正在重建「' + b.name + '」索引'); return; }
+    if (act === 'reindex-all') {
+      if (state.bases.length === 0) return toast('没有可重建的知识库');
+      state.bases.forEach(function (x) { x.status = 'indexing'; x.progress = 0; });
+      startProgress('正在重建全部知识库索引（' + state.bases.length + ' 个）', 5000, function () {
+        state.bases.forEach(function (x) {
+          x.status = 'ready'; x.progress = 100;
+          x.indexDim = (providerById(x.providerId) || { dim: x.indexDim }).dim;
+          x.updated = nowStr();
+        });
+        render();
+        toast('全部知识库索引重建完成', 'ok');
+      });
+      return;
+    }
+    if (act === 'add-folder') return dlgAddFolder();
+
+    // 标签页 2
+    if (act === 'new-provider') return dlgProvider(null);
+    if (act === 'edit-provider') return dlgProvider(providerById(id));
+    if (act === 'delete-provider') return dlgDeleteProvider(providerById(id));
+    if (act === 'test-provider') return testProvider(id);
+    if (act === 'change-model') return dlgChangeModel(baseById(id));
+
+    // 标签页 3
+    if (act === 'run-search') return runSearch();
+    if (act === 'open-source') { toast('正在打开原文件：' + el.getAttribute('data-path')); return; }
+
+    // 标签页 4
+    if (act === 'toggle-empty') { state.emptyDemo = !state.emptyDemo; render(); return; }
+    if (act === 'cancel-download') {
+      state.downloads = state.downloads.filter(function (d) { return d.id !== id; });
+      render(); toast('已取消下载'); return;
+    }
+    if (act === 'retry-mirror') {
+      var d = null; state.downloads.forEach(function (x) { if (x.id === id) d = x; });
+      if (d) { d.state = 'downloading'; d.percent = 0; d.note = '正在通过镜像源下载（hf-mirror.com）'; }
+      render(); simulateDownload(id); return;
+    }
+    if (act === 'skip-rerank') { toast('已切换为「向量 + 关键词」混合检索（不启用重排序）', 'ok'); return; }
+    if (act === 'use-remote-rerank') { toast('已改为远程重排序 API，请在「向量模型」中填写端点与密钥'); return; }
+  }
+
+  function simulateDownload(id) {
+    var d = null; state.downloads.forEach(function (x) { if (x.id === id) d = x; });
+    if (!d) return;
+    var t = setInterval(function () {
+      if (!d || d.state !== 'downloading') { clearInterval(t); return; }
+      d.percent = Math.min(100, d.percent + 7);
+      if (d.percent >= 100) { d.state = 'done'; d.note = '已完成'; clearInterval(t); toast('模型下载完成：' + d.model, 'ok'); }
+      render();
+    }, 200);
+    timers.push(t);
+  }
+
+  // ───────────────────────── 各弹窗 ─────────────────────────
+  function dlgNewBase() {
+    openModal({
+      title: '新建知识库',
+      body:
+        '<div class="field"><label>知识库名称</label>' +
+        '<input type="text" id="nb-name" placeholder="例如：产品手册" /></div>' +
+        '<div class="field"><label>描述（可选）</label>' +
+        '<input type="text" id="nb-desc" placeholder="这个知识库放什么内容" /></div>' +
+        '<div class="field"><label>向量模型</label><select id="nb-provider">' +
+          state.providers.map(function (p) {
+            return '<option value="' + p.id + '">' + esc(p.name) + ' · ' + esc(p.model) + (p.ok ? '' : '（当前不可用）') + '</option>';
+          }).join('') +
+        '</select><div class="hint">默认使用系统自动检测到的最优 provider，之后可随时更换。</div></div>',
+      buttons: [
+        { label: '取消' },
+        { label: '创建', kind: 'primary', onClick: function (ctx) {
+            var name = (ctx.mask.querySelector('#nb-name').value || '').trim();
+            if (!name) { toast('请填写知识库名称', 'err'); return false; }
+            var pid = ctx.mask.querySelector('#nb-provider').value;
+            var p = providerById(pid);
+            state.bases.push({
+              id: 'kb' + (Date.now() % 100000), name: name, docs: 0, status: 'ready',
+              updated: nowStr(), providerId: pid, indexDim: p ? p.dim : 0, progress: 0
+            });
+            render(); toast('已创建知识库「' + name + '」', 'ok');
+          } }
+      ]
+    });
+  }
+
+  function dlgRename(b) {
+    if (!b) return;
+    openModal({
+      title: '重命名知识库',
+      body: '<div class="field"><label>新名称</label><input type="text" id="rn-name" value="' + esc(b.name) + '" /></div>',
+      buttons: [
+        { label: '取消' },
+        { label: '保存', kind: 'primary', onClick: function (ctx) {
+            var v = (ctx.mask.querySelector('#rn-name').value || '').trim();
+            if (!v) { toast('名称不能为空', 'err'); return false; }
+            b.name = v; render(); toast('已重命名为「' + v + '」', 'ok');
+          } }
+      ]
+    });
+  }
+
+  function dlgDeleteBase(b) {
+    if (!b) return;
+    openModal({
+      title: '删除知识库',
+      body: '<div style="font-size:13.5px">确定要删除知识库 <b>' + esc(b.name) + '</b> 吗？</div>' +
+        '<div style="margin-top:10px;padding:10px 12px;background:var(--err-soft);border-radius:8px;font-size:13px;color:#b91c1c">' +
+        '将同时删除其中的 ' + b.docs + ' 个文档及其全部索引数据，且不可恢复。</div>',
+      buttons: [
+        { label: '取消' },
+        { label: '确认删除', kind: 'danger', onClick: function () {
+            state.bases = state.bases.filter(function (x) { return x.id !== b.id; });
+            render(); toast('已删除「' + b.name + '」', 'ok');
+          } }
+      ]
+    });
+  }
+
+  function dlgAddFolder() {
+    var m = openModal({
+      title: '添加文件夹',
+      body:
+        '<div class="field"><label>文件夹路径</label>' +
+          '<div class="row grow"><input type="text" id="af-path" placeholder="例如：D:\\Documents\\产品资料" />' +
+          '<button class="btn" data-browse="1">浏览…</button></div>' +
+          '<div class="hint">支持 PDF、DOCX、PPTX、Markdown、TXT；子目录会一并递归索引。</div></div>' +
+        '<div class="field"><label>加入知识库</label><select id="af-base">' +
+          (state.bases.length ? state.bases.map(function (b) {
+            return '<option value="' + b.id + '">' + esc(b.name) + '</option>';
+          }).join('') : '<option value="">（将自动创建「默认知识库」）</option>') +
+        '</select></div>',
+      buttons: [
+        { label: '取消' },
+        { label: '确认并开始索引', kind: 'primary', onClick: function (ctx) {
+            var path = (ctx.mask.querySelector('#af-path').value || '').trim();
+            if (!path) { toast('请填写或选择文件夹路径', 'err'); return false; }
+            var bid = ctx.mask.querySelector('#af-base').value;
+            var b = baseById(bid);
+            if (!b) {
+              b = { id: 'kb' + (Date.now() % 100000), name: '默认知识库', docs: 0, status: 'ready',
+                    updated: nowStr(), providerId: (state.providers[0] || {}).id, indexDim: (state.providers[0] || {}).dim || 0, progress: 0 };
+              state.bases.push(b);
+            }
+            indexBase(b, '正在索引「' + path + '」→ ' + b.name);
+            toast('已开始索引：' + path);
+          } }
+      ]
+    });
+
+    // “浏览…”：切换为简易目录选择器
+    m.body.addEventListener('click', function (ev) {
+      var br = ev.target.closest('[data-browse]');
+      if (!br) return;
+      var dirs = ['D:\\Documents\\产品资料', 'D:\\Documents\\技术规范', 'D:\\Documents\\论文库', 'D:\\Download\\知识库素材'];
+      m.setBody(
+        '<div class="field"><label>选择文件夹</label>' +
+        '<div class="dirlist">' +
+          '<div class="dirrow" style="color:var(--faint)">📁 D:\\  （根目录）</div>' +
+          dirs.map(function (d) { return '<div class="dirrow" data-pick="' + esc(d) + '">📁 ' + esc(d) + '</div>'; }).join('') +
+        '</div><div class="hint">原型仅模拟选择结果，真实实现调用系统目录选择器。</div></div>' +
+        '<button class="btn" data-back="1">← 返回</button>'
+      );
+      m.body.addEventListener('click', function (ev2) {
+        var pick = ev2.target.closest('[data-pick]');
+        if (pick) {
+          var v = pick.getAttribute('data-pick');
+          dlgAddFolderWithPath(v);
+          m.close();
+          return;
+        }
+        if (ev2.target.closest('[data-back]')) dlgAddFolder();
+      }, { once: false });
+    });
+  }
+
+  function dlgAddFolderWithPath(path) {
+    openModal({
+      title: '添加文件夹',
+      body:
+        '<div class="field"><label>文件夹路径</label>' +
+          '<div class="row grow"><input type="text" id="af-path2" value="' + esc(path) + '" />' +
+          '<button class="btn" data-browse2="1">浏览…</button></div></div>' +
+        '<div class="field"><label>加入知识库</label><select id="af-base2">' +
+          (state.bases.length ? state.bases.map(function (b) {
+            return '<option value="' + b.id + '">' + esc(b.name) + '</option>';
+          }).join('') : '<option value="">（将自动创建「默认知识库」）</option>') +
+        '</select></div>',
+      buttons: [
+        { label: '取消' },
+        { label: '确认并开始索引', kind: 'primary', onClick: function (ctx) {
+            var p = (ctx.mask.querySelector('#af-path2').value || '').trim();
+            var bid = ctx.mask.querySelector('#af-base2').value;
+            var b = baseById(bid);
+            if (!b) {
+              b = { id: 'kb' + (Date.now() % 100000), name: '默认知识库', docs: 0, status: 'ready',
+                    updated: nowStr(), providerId: (state.providers[0] || {}).id, indexDim: (state.providers[0] || {}).dim || 0, progress: 0 };
+              state.bases.push(b);
+            }
+            indexBase(b, '正在索引「' + p + '」→ ' + b.name);
+            toast('已开始索引：' + p);
+          } }
+      ]
+    });
+  }
+
+  function dlgProvider(p) {
+    var isNew = !p;
+    var kind = p ? p.kind : 'openai';
+    openModal({
+      title: isNew ? '新增向量 provider' : '编辑向量 provider',
+      body:
+        '<div class="field"><label>类型</label><select id="pv-kind">' +
+          Object.keys(KIND_META).map(function (k) {
+            return '<option value="' + k + '"' + (k === kind ? ' selected' : '') + '>' + esc(KIND_META[k].label) + '</option>';
+          }).join('') +
+        '</select></div>' +
+        '<div class="field"><label>名称</label>' +
+          '<input type="text" id="pv-name" value="' + esc(p ? p.name : '') + '" placeholder="例如：OpenAI 兼容 · 公司网关" /></div>' +
+        '<div id="pv-remote">' +
+          '<div class="field"><label>Endpoint</label>' +
+            '<input type="text" id="pv-endpoint" value="' + esc(p && p.kind !== 'onnx' ? p.endpoint : '') + '" placeholder="https://api.openai.com/v1" /></div>' +
+          '<div class="field"><label>API Key</label>' +
+            '<input type="password" id="pv-key" value="" placeholder="sk-…（也可从环境变量读取）" />' +
+            '<div class="hint">留空时依次尝试：插件配置 → 环境变量 OPENAI_API_KEY / KNOWLEDGE_API_KEY。</div></div>' +
+        '</div>' +
+        '<div class="field"><label>模型名</label>' +
+          '<input type="text" id="pv-model" value="' + esc(p ? p.model : '') + '" placeholder="text-embedding-3-small" /></div>' +
+        '<div class="field"><label>向量维度（可选）</label>' +
+          '<input type="text" id="pv-dim" value="' + esc(p ? p.dim : '') + '" placeholder="留空则测试连接时自动探测" /></div>' +
+        '<div id="pv-local-hint" style="display:none;padding:10px 12px;background:var(--ok-soft);border-radius:8px;font-size:12.5px;color:#15803d">' +
+          '本地向量模型开箱即用，无需填写 API Key；首次使用时自动下载权重并带进度提示。</div>',
+      buttons: [
+        { label: '取消' },
+        { label: '测试连接', onClick: function (ctx) {
+            var k = ctx.mask.querySelector('#pv-kind').value;
+            if (k === 'onnx' || k === 'ollama') toast('本地模型无需密钥，连接测试将检查本地运行时与端口', 'ok');
+            else toast('正在测试连接…（模拟）');
+            return false;
+          } },
+        { label: isNew ? '保存' : '保存修改', kind: 'primary', onClick: function (ctx) {
+            var k = ctx.mask.querySelector('#pv-kind').value;
+            var name = (ctx.mask.querySelector('#pv-name').value || '').trim();
+            if (!name) { toast('请填写名称', 'err'); return false; }
+            var epEl = ctx.mask.querySelector('#pv-endpoint');
+            var endpoint = k === 'onnx' ? '（本地，无需端点）' : (epEl ? epEl.value.trim() : '');
+            if (k !== 'onnx' && !endpoint) { toast('请填写 Endpoint', 'err'); return false; }
+            var model = (ctx.mask.querySelector('#pv-model').value || '').trim();
+            if (!model) { toast('请填写模型名', 'err'); return false; }
+            var dimRaw = (ctx.mask.querySelector('#pv-dim').value || '').trim();
+            var dim = parseInt(dimRaw, 10);
+            if (!isFinite(dim)) dim = k === 'openai' ? 1536 : k === 'custom' ? 768 : 1024;
+
+            if (isNew) {
+              state.providers.push({ id: 'p' + (Date.now() % 100000), kind: k, name: name,
+                endpoint: endpoint, model: model, dim: dim, ok: k !== 'ollama', latency: 0 });
+              toast('已新增 provider「' + name + '」', 'ok');
+            } else {
+              p.kind = k; p.name = name; p.endpoint = endpoint; p.model = model; p.dim = dim;
+              p.testResult = null; p.testing = false;
+              toast('已保存 provider「' + name + '」', 'ok');
+            }
+            render();
+          } }
+      ]
+    });
+  }
+
+  function dlgDeleteProvider(p) {
+    if (!p) return;
+    var used = state.bases.filter(function (b) { return b.providerId === p.id; });
+    openModal({
+      title: '删除向量 provider',
+      body: '<div style="font-size:13.5px">确定要删除 <b>' + esc(p.name) + '</b> 吗？</div>' +
+        (used.length
+          ? '<div style="margin-top:10px;padding:10px 12px;background:var(--warn-soft);border-radius:8px;font-size:13px;color:#b45309">' +
+            '以下 ' + used.length + ' 个知识库正在使用它：' + used.map(function (b) { return esc(b.name); }).join('、') +
+            '。删除后这些知识库需要重新绑定模型并重建索引。</div>'
+          : ''),
+      buttons: [
+        { label: '取消' },
+        { label: '确认删除', kind: 'danger', onClick: function () {
+            state.providers = state.providers.filter(function (x) { return x.id !== p.id; });
+            state.bases.forEach(function (b) { if (b.providerId === p.id) { b.status = 'stale'; } });
+            render(); toast('已删除 provider「' + p.name + '」', 'ok');
+          } }
+      ]
+    });
+  }
+
+  function testProvider(id) {
+    var p = providerById(id);
+    if (!p) return;
+    p.testing = true; p.testResult = null;
+    var cell = $('st-' + id);
+    if (cell) cell.innerHTML = statusLight(p);
+
+    setTimeout(function () {
+      p.testing = false;
+      if (p.kind === 'ollama' && p.ok === false) {
+        p.testResult = 'err';
+        p.err = '连接被拒绝：11434 端口无服务，请先启动 Ollama（ollama serve）';
+      } else {
+        p.testResult = 'ok';
+        p.latency = p.latency || Math.floor(20 + Math.random() * 200);
+        p.ok = true;
+      }
+      var c2 = $('st-' + id);
+      if (c2) c2.innerHTML = statusLight(p);
+      if (p.testResult === 'ok') toast('连接成功：' + p.name + '（' + p.latency + ' ms）', 'ok');
+      else toast('连接失败：' + p.err, 'err');
+    }, 900);
+  }
+
+  function dlgChangeModel(b) {
+    if (!b) return;
+    openModal({
+      title: '更换向量模型',
+      body:
+        '<div class="field"><label>知识库</label>' +
+          '<input type="text" value="' + esc(b.name) + '" disabled /></div>' +
+        '<div class="field"><label>当前绑定</label>' +
+          '<input type="text" value="' + esc((providerById(b.providerId) || {}).name || '未绑定') + ' · ' + esc((providerById(b.providerId) || {}).model || '—') + '" disabled /></div>' +
+        '<div class="field"><label>更换为</label><select id="cm-provider">' +
+          state.providers.map(function (p) {
+            return '<option value="' + p.id + '"' + (p.id === b.providerId ? ' selected' : '') + '>' +
+              esc(p.name) + ' · ' + esc(p.model) + '（' + p.dim + ' 维）</option>';
+          }).join('') +
+        '</select></div>' +
+        '<div style="padding:10px 12px;background:var(--warn-soft);border-radius:8px;font-size:13px;color:#b45309">' +
+          '更换后需重建索引，是否继续？</div>',
+      buttons: [
+        { label: '取消' },
+        { label: '确认并重建索引', kind: 'primary', onClick: function (ctx) {
+            var pid = ctx.mask.querySelector('#cm-provider').value;
+            var p = providerById(pid);
+            b.providerId = pid;
+            b.status = 'stale';
+            render();
+            toast('已更换模型，正在重建索引…');
+            setTimeout(function () {
+              indexBase(b, '正在按新模型重建「' + b.name + '」索引');
+            }, 260);
+          } }
+      ]
+    });
+  }
+
+  // ───────────────────────── 检索测试逻辑 ─────────────────────────
+  function runSearch() {
+    var qEl = $('q'), sEl = $('scope');
+    var q = (qEl ? qEl.value : '').trim();
+    state.search.q = q;
+    state.search.scope = sEl ? sEl.value : 'all';
+    if (!q) { toast('请输入查询语句', 'err'); return; }
+
+    var scopeNames = state.search.scope === 'all'
+      ? state.bases.map(function (b) { return b.name; })
+      : [ (baseById(state.search.scope) || {}).name ];
+
+    var corpus = [
+      { path: 'D:\\Documents\\产品资料\\部署指南.pdf', locator: '第 12 页', base: '产品手册', score: 0.892, bm25: 8.41,
+        text: '部署环境要求：推荐 8 核 CPU、16 GB 内存。执行安装脚本后，运行「' + q + '」相关配置项即可完成初始化，配置项位于 config/app.yml。' },
+      { path: 'D:\\Documents\\产品资料\\快速上手.md', locator: '第 3 节 · 第 42 行', base: '产品手册', score: 0.774, bm25: 6.12,
+        text: '若需要调整默认参数，可在管理界面中搜索「' + q + '」并直接修改，无需手工编辑配置文件；修改后重启服务生效。' },
+      { path: 'D:\\Documents\\技术规范\\接口约定.docx', locator: '第 2 段', base: '内部规范', score: 0.681, bm25: 4.87,
+        text: '关于「' + q + '」的约定：所有对外接口需携带 traceId，超时时间统一为 30 秒，失败重试不超过 2 次。' },
+      { path: 'D:\\Documents\\论文库\\rag-survey.pdf', locator: '第 7 页 · 第 2 段', base: '论文库', score: 0.523, bm25: 3.05,
+        text: '混合检索（Hybrid Retrieval）通常将 BM25 与稠密向量检索结果通过 RRF 融合，以兼顾关键词精确匹配与语义泛化能力。' }
+    ];
+
+    var results = corpus.filter(function (c) {
+      return state.search.scope === 'all' || scopeNames.indexOf(c.base) >= 0;
+    }).map(function (c) {
+      var t = esc(c.text);
+      var safeQ = esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (safeQ) t = t.replace(new RegExp(safeQ, 'gi'), function (mm) { return '<mark>' + mm + '</mark>'; });
+      return { path: c.path, locator: c.locator, base: c.base, score: c.score, bm25: c.bm25, excerpt: t };
+    });
+
+    state.search.ran = true;
+    state.search.results = results;
+    state.search.elapsed = 40 + Math.floor(Math.random() * 160);
+    render();
+    toast('检索完成：召回 ' + results.length + ' 条');
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
