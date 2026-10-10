@@ -258,11 +258,25 @@ function makeHandler(getConfig) {
       // ── 本地模型下载 ──
       if (method === 'POST' && path === '/models/download') {
         const body = await readJsonBody(req);
-        return json(res, 200, { ok: true, ...svc.startModelDownload(body?.model) });
+        const r = svc.startModelDownload(body?.model);
+        if (r.started === false && r.runtimeUnavailable) {
+          // 运行时不可用：以 409 语义返回，UI 显示安装引导而非进度条。
+          return json(res, 409, { ok: false, error: r.error, suggestion: r.suggestion });
+        }
+        return json(res, 200, { ok: true, ...r });
       }
       if (method === 'POST' && path === '/models/cancel') {
         const body = await readJsonBody(req);
         return json(res, 200, { ok: true, ...svc.cancelModelDownload(body?.model) });
+      }
+
+      // ── 本地模型目录（下载页的可选清单）──
+      if (method === 'GET' && path === '/models') {
+        return json(res, 200, {
+          ok: true,
+          models: svc.listLocalModels(),
+          status: svc.onnx.listStatus(),
+        });
       }
 
       // ── 目录浏览（「添加文件夹」的辅助选择器）──
