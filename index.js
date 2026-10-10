@@ -237,6 +237,17 @@ function makeHandler(getConfig) {
         const result = await svc.testProvider(decodeURIComponent(testMatch[1]));
         return json(res, 200, { ok: true, result });
       }
+      // 草稿测试：直接测一份未保存的 spec，**零落库**（替代旧的先建后删，杜绝 __draft_ 泄漏）。
+      if (method === 'POST' && path === '/providers/test-draft') {
+        const body = await readJsonBody(req);
+        const result = await svc.testProviderSpec({
+          kind: String(body?.kind ?? 'openai'),
+          endpoint: String(body?.endpoint ?? ''),
+          model: String(body?.model ?? ''),
+          apiKey: String(body?.apiKey ?? ''),
+        });
+        return json(res, 200, { ok: true, result });
+      }
 
       // ── 绑定与维度 ──
       if (method === 'POST' && path === '/bindings') {
