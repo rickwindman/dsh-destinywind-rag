@@ -364,7 +364,22 @@ function buildSearchTool(svc) {
       },
       required: ['query'],
     },
-    async execute(args) {
+    // 宿主契约：output 描述返回值结构并负责渲染（对照 dsh-destinywind-computer-user 与内置工具）。
+    output: {
+      schema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: '检索结果文本（含相似度与来源标注）' },
+        },
+        required: ['text'],
+        additionalProperties: false,
+      },
+      render(_args, value) {
+        const v = Array.isArray(value) && value[0]?.type === 'text' ? value[0].text : String(value ?? '');
+        return [{ type: 'text', text: v }];
+      },
+    },
+    async execute(args, exec) {
       // 输入框旁的「知识库范围」选择器：模型未显式指定 baseId 时遵循它。
       // auto = 不限定（检索全部库，由模型自行判断是否需要检索）；
       // all  = 明确限定为全部知识库；具体 id = 限定该库。
@@ -380,12 +395,11 @@ function buildSearchTool(svc) {
         baseId,
         topK: args?.topK,
         mode: args?.mode,
+        // 宿主传入的取消信号：会话中止时立即停止检索（包括本地模型推理）。
+        signal: exec?.signal,
       });
-      return {
-        content: renderToolResult(result),
-        // 结构化数据供 UI 渲染来源卡片。
-        data: { hits: result.hits, elapsedMs: result.elapsedMs, reranked: result.reranked },
-      };
+      // 宿主契约：execute 返回内容块数组（对照 computer-user 与内置工具）。
+      return [{ type: 'text', text: renderToolResult(result) }];
     },
   };
 }
