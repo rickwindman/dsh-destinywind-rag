@@ -29,6 +29,15 @@
   "scripts": {
     "test": "node --test"
   },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "mammoth": "^1.8.0"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "4.3.1",
+    "onnxruntime-node": "1.30.0",
+    "pdfjs-dist": "^4.10.38"
+  },
   "engines": {
     "node": ">=22.5.0"
   },
