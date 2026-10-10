@@ -1,0 +1,8 @@
+{
+  "name": "Knowledge Base",
+  "description": "Manage knowledge bases, vector model bindings, and retrieval tests; works out of the box.",
+  "tabBases": "Bases",
+  "tabProviders": "Vector Models",
+  "tabSearch": "Retrieval Test",
+  "tabStatus": "Status"
+}
