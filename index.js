@@ -10,6 +10,8 @@
  */
 
 import { KnowledgeService } from './lib/service.js';
+import os from 'node:os';
+import { join } from 'node:path';
 
 export const inject = ['webServer', 'tools', 'systemPrompt'];
 
@@ -65,10 +67,66 @@ function fail(res, error) {
 }
 
 /**
+ * 同源校验。
+ * 该 API 能重命名/删除知识库、改配置、读任意目录列表，必须防止
+ * 浏览器侧恶意页面用 no-cors POST 打进来（fetch no-cors 可以发请求但
+ * 读不到响应，对「只写不读」的破坏性操作恰好够用）。
+ * 同源判定：无 Origin（非浏览器客户端，如 curl / 模型工具）放行；
+ * 有 Origin 时必须与请求的 Host 一致。
+ */
+function sameOrigin(req) {
+  const origin = req.headers?.origin;
+  if (origin === undefined || origin === null || String(origin).trim() === '') return true;
+  const host = req.headers?.host;
+  if (!host) return false;
+  try {
+    return new URL(String(origin)).host === String(host);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 目录浏览的路径约束：只允许浏览用户可见的数据目录，禁止探测系统目录。
+ * 允许：用户主目录、各盘符根下的 Documents/Downloads/Desktop，
+ * 以及这些目录的任意子目录。
+ */
+const FS_BROWSE_ALLOWED_ROOTS = [
+  join(os.homedir(), 'Documents'),
+  join(os.homedir(), 'Downloads'),
+  join(os.homedir(), 'Desktop'),
+];
+const FS_BROWSE_DRIVE_ROOTS = ['C:\\', 'D:\\', 'E:\\', 'F:\\'];
+
+function isBrowseAllowed(dir) {
+  const p = String(dir ?? '').trim();
+  if (p === '') return false;
+  const lower = p.toLowerCase();
+  // 盘符根本身允许（作为浏览起点），但必须落在允许的盘符上。
+  if (FS_BROWSE_DRIVE_ROOTS.some((r) => lower === r.toLowerCase())) return true;
+  if (FS_BROWSE_ALLOWED_ROOTS.some((r) => lower === r.toLowerCase())) return true;
+  // 子目录：必须以某个允许根 + 分隔符开头。
+  return FS_BROWSE_ALLOWED_ROOTS.some((r) => lower.startsWith(r.toLowerCase() + '\\'))
+    || FS_BROWSE_DRIVE_ROOTS.some((r) => {
+      const root = r.toLowerCase();
+      // 只放行这些盘符下的「用户数据目录」，系统目录（Windows/Program Files）排除。
+      if (!lower.startsWith(root)) return false;
+      const rest = lower.slice(root.length);
+      if (rest === '') return false;
+      const top = rest.split('\\')[0];
+      return ['documents', 'downloads', 'desktop', 'users'].includes(top);
+    });
+}
+
+/**
  * HTTP 路由表。全部返回 { ok: true, ... } 或 { ok: false, error, suggestion }。
  */
 function makeHandler(getConfig) {
   return async (req, res) => {
+    // 同源校验：跨源写入请求一律拒绝。
+    if (!sameOrigin(req)) {
+      return json(res, 403, { ok: false, error: '跨源请求被拒绝', suggestion: '请从 DSH 界面内发起操作。' });
+    }
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     const path = url.pathname.slice(ROUTE_PREFIX.length) || '/';
     const method = (req.method ?? 'GET').toUpperCase();
@@ -211,6 +269,14 @@ function makeHandler(getConfig) {
       if (method === 'GET' && path === '/fs/list') {
         const dir = url.searchParams.get('path') ?? '';
         if (dir.trim() === '') return json(res, 400, { ok: false, error: '请提供目录路径' });
+        // 路径约束：只允许浏览用户数据目录，禁止探测系统目录。
+        if (!isBrowseAllowed(dir)) {
+          return json(res, 403, {
+            ok: false,
+            error: '该路径不在允许浏览的范围内',
+            suggestion: '仅支持浏览用户主目录下的 Documents / Downloads / Desktop 及其子目录。',
+          });
+        }
         const { readdir } = await import('node:fs/promises');
         try {
           const entries = await readdir(dir, { withFileTypes: true });
@@ -383,6 +449,19 @@ export function apply(ctx, config = {}) {
   void svc.detect().catch((error) => {
     logger.warn?.(`dsh-destinywind-rag: 环境检测失败 — ${String(error?.message ?? error)}`);
   });
+
+  // 5) 卸载回调：DSH 停用/热重载插件时释放 SQLite 连接与本地模型内存。
+  //    缺了它，每次热重载都会泄漏一个数据库句柄（Windows 下文件被占用，删除 profile 会失败）。
+  if (typeof ctx.effect === 'function') {
+    ctx.effect(() => () => {
+      try {
+        svc.close();
+        logger.info?.('dsh-destinywind-rag: 已卸载（数据库连接与模型内存已释放）');
+      } catch (error) {
+        logger.warn?.(`dsh-destinywind-rag: 卸载清理失败 — ${String(error?.message ?? error)}`);
+      }
+    }, 'dsh-destinywind-rag: dispose');
+  }
 
   logger.info?.('dsh-destinywind-rag: 已挂载（知识库 / RAG，混合检索）');
 }
