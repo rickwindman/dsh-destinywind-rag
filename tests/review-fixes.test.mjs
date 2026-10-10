@@ -228,3 +228,142 @@ test('复审R12: lineStart/lineEnd 与 chunk 偏移在重叠分块下仍正确',
   }
   svc.close();
 });
+
+// ─────────────── 文件夹视图与导入明细（用户实测反馈） ───────────────
+
+function seedFolderDocs(svc, base) {
+  const add = (path, title) => svc.store.addDocument({
+    baseId: base.id, title, text: `内容 ${title}`,
+    sourceType: 'file', sourcePath: path,
+    chunks: [{ index: 0, text: `内容 ${title}` }],
+    dim: 0,
+  });
+  add('D:\\a\\doc1.txt', 'a1');
+  add('D:\\a\\sub\\doc2.txt', 'a2');
+  add('D:\\ab\\doc3.txt', 'ab1');
+  add('D:\\b\\doc4.txt', 'b1');
+}
+
+test('文件夹R1: listSourceFolders 按直接目录聚合（子目录独立成行）', () => {
+  const svc = memService();
+  const base = svc.createBase({ name: '库' });
+  seedFolderDocs(svc, base);
+  const folders = svc.listSourceFolders(base.id);
+  const byPath = new Map(folders.map((f) => [f.folder, f]));
+  // 语义：按文件所在直接目录聚合——子目录单独成行，便于精确定位与单独删除。
+  assert.equal(byPath.get('D:\\a')?.documents, 1);
+  assert.equal(byPath.get('D:\\a\\sub')?.documents, 1, '子目录独立显示');
+  assert.equal(byPath.get('D:\\ab')?.documents, 1);
+  assert.equal(byPath.get('D:\\b')?.documents, 1);
+  assert.equal(folders.length, 4);
+  // 删除 D:\a 仍会连带其子目录（前缀匹配），这与聚合显示互补。
+  const r = svc.deleteSourceFolder(base.id, 'D:\\a');
+  assert.equal(r.deleted, 2);
+  svc.close();
+});
+
+test('文件夹R2: deleteSourceFolder 前缀边界——D:\\a 不误删 D:\\ab', () => {
+  const svc = memService();
+  const base = svc.createBase({ name: '库' });
+  seedFolderDocs(svc, base);
+  const r = svc.deleteSourceFolder(base.id, 'D:\\a');
+  assert.equal(r.deleted, 2, '只删 D:\\a 自身及子目录的 2 个文档');
+  const remain = svc.store.listDocuments(base.id).map((d) => d.sourcePath).sort();
+  assert.deepEqual(remain, ['D:\\ab\\doc3.txt', 'D:\\b\\doc4.txt'], 'D:\\ab 与 D:\\b 必须完好');
+  svc.close();
+});
+
+test('文件夹R3: deleteSourceFolder 大小写不敏感 + 尾部斜杠规范化', () => {
+  const svc = memService();
+  const base = svc.createBase({ name: '库' });
+  seedFolderDocs(svc, base);
+  const r = svc.deleteSourceFolder(base.id, 'd:\\a\\');
+  assert.equal(r.deleted, 2, '小写盘符 + 尾部斜杠应等价于 D:\\a');
+  svc.close();
+});
+
+test('文件夹R4: deleteSourceFolder 不触碰 text 型文档与不匹配路径', () => {
+  const svc = memService();
+  const base = svc.createBase({ name: '库' });
+  seedFolderDocs(svc, base);
+  svc.addText({ baseId: base.id, title: '手工文本', text: '手工内容。' });
+  const r = svc.deleteSourceFolder(base.id, 'D:\\不存在的目录');
+  assert.equal(r.deleted, 0);
+  assert.equal(svc.store.stats().documents, 5, '4 个文件 + 1 个手工文本全部保留');
+  svc.close();
+});
+
+test('文件夹R5: addDirectory 返回 skippedByExt 分类与 duplicate 计数', async () => {
+  const { mkdtemp, rm, writeFile, mkdir } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'rag-folders-'));
+  try {
+    await writeFile(join(dir, 'a.txt'), '第一个文件内容。', 'utf8');
+    await writeFile(join(dir, 'b.doc'), '旧版 Word 二进制', 'binary');
+    await writeFile(join(dir, 'c.ppt'), '旧版 PPT 二进制', 'binary');
+    await writeFile(join(dir, 'd.exe'), 'MZ', 'binary');
+    await mkdir(join(dir, 'sub'), { recursive: true });
+    await writeFile(join(dir, 'sub', 'e.md'), '# 子目录\n内容。', 'utf8');
+
+    const svc = memService({ embeddingProvider: 'none' });
+    const base = svc.createBase({ name: '库' });
+    const r1 = await svc.addDirectory({ baseId: base.id, dirPath: dir });
+    assert.equal(r1.imported, 2, 'txt + md 入库');
+    assert.equal(r1.skippedByExt['.doc'], 1);
+    assert.equal(r1.skippedByExt['.ppt'], 1);
+    assert.equal(r1.skippedByExt['.exe'], 1);
+    assert.equal(r1.folders, 2, '根目录 + sub');
+    // 内容去重路径走 duplicate 而不是 imported
+    const r2 = await svc.addDirectory({ baseId: base.id, dirPath: dir });
+    assert.equal(r2.duplicate, 2, '重扫时同内容应计为 duplicate');
+    assert.equal(r2.imported, 0);
+    svc.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('复审R13: ONNX 测试连接必须真实探测维度（不得回显旧值 0）', async () => {
+  await withStub(4, async () => {
+    const svc = memService();
+    const p = svc.createProvider({ kind: 'onnx', name: '本地', model: 'stub/model', dim: 0 });
+    let embedCalled = false;
+    svc.onnx.embed = async () => { embedCalled = true; return [[0.1, 0.2, 0.3, 0.4]]; };
+    const result = await svc.testProvider(p.id);
+    assert.equal(embedCalled, true, '必须真实调用 embed 探测，而不是只查文件存在性');
+    assert.equal(result.ok, true);
+    assert.equal(result.dim, 4, '维度必须来自真实推理输出');
+    assert.equal(svc.store.getProvider(p.id).dim, 4, '维度应写回 provider 记录');
+    svc.close();
+  });
+});
+
+test('复审R14: Ollama 测试连接必须真实探测维度', async () => {
+  const server = createServer((req, res) => {
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ models: [{ name: 'bge-m3' }] }));
+      return;
+    }
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ embedding: new Array(6).fill(0.5) }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const svc = memService();
+    const p = svc.createProvider({ kind: 'ollama', name: 'o', endpoint: base, model: 'bge-m3', dim: 0 });
+    const result = await svc.testProvider(p.id);
+    assert.equal(result.ok, true);
+    assert.equal(result.dim, 6, '维度必须来自真实 embeddings 输出');
+    assert.equal(svc.store.getProvider(p.id).dim, 6);
+    svc.close();
+  } finally {
+    await closeServer(server);
+  }
+});
