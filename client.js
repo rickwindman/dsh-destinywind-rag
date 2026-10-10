@@ -20,24 +20,11 @@ window.__ModuleLoader__.load({
     const React = require('react');
     const API_BASE = '/dsh-destinywind-rag';
 
-    // 等待动画：进度百分比静止的阶段（如导入中后端逐文件处理）也要让进度条
-    // 「活着」，否则用户会当成卡死。用 DSH 内建 styles.insert 注入，随 Client
-    // 卸载自动清理，全局命名空间只加一个 rag 专属 class。
-    let stylesCleanup = null;
-    function ensureStripeAnimation() {
-      if (stylesCleanup) return;
-      stylesCleanup = require('styles').insert(`
-        @keyframes rag-stripe {
-          from { background-position: 0 0; }
-          to { background-position: 28px 0; }
-        }
-        .rag-bar-busy > i {
-          background-image: linear-gradient(135deg, rgba(255,255,255,0) 0 8px, rgba(255,255,255,0.45) 8px 14px) !important;
-          background-size: 28px 28px !important;
-          animation: rag-stripe 0.9s linear infinite !important;
-        }
-      `);
-    }
+    // 等待体验：进度百分比静止的阶段（如导入中后端逐文件处理）也要让进度条
+    // 「活着」，否则用户会当成卡死。
+    // 实现取 JS 模拟推进而非注入样式表：曾用 require('styles').insert 注入
+    // keyframes，该内建 API 未在真机验证过，导致 web boot 激活直接 failed
+    //（全机其他插件也从未用过它）。JS 定时推进零新依赖、零激活风险。
 
     const SETTINGS_SLOT = 'settings.section';
     const SETTINGS_ENTRY_ID = 'destinywind-rag';
@@ -203,7 +190,7 @@ window.__ModuleLoader__.load({
               React.createElement('span', { style: styles.mono }, `${task.percent}%`),
             ),
             // 条纹流动：即使后端没有逐项进度，条也 visibly 活着，绝不「像卡死」。
-            React.createElement('div', { className: 'rag-bar-busy', style: styles.bar }, React.createElement('i', { style: styles.barFill(task.percent) })),
+            React.createElement('div', { style: styles.bar }, React.createElement('i', { style: styles.barFill(task.percent) })),
             React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 6 } },
               '正在处理，请稍候——文件夹很大或首次下载模型时可能需要几分钟；页面可以随时关闭，任务不会中断。'),
           )) : null,
@@ -1119,6 +1106,22 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer);
       }, [status, refresh]);
 
+      // 等待体验：后端没有逐项进度的长任务（导入/扫描），百分比会静止——静止的
+      // 进度条会被当成卡死。这里让它在 30~95% 区间缓慢模拟推进；任何真实进度
+      // （轮询到的 reindex 进度、完成态 100%）写入时直接覆盖模拟值。
+      // dep 只挂 task?.sim：模拟启动一次，之后 interval 自持（setTask 函数式更新），
+      // 真实进度写入会改 percent 但 sim 标志不变，interval 继续从新值缓慢推进。
+      React.useEffect(() => {
+        if (task?.sim !== true) return undefined;
+        const timer = setInterval(() => {
+          setTask((cur) => {
+            if (!cur || cur.sim !== true || cur.percent >= 95) return cur;
+            return { ...cur, percent: Math.min(95, cur.percent + 1) };
+          });
+        }, 300);
+        return () => clearInterval(timer);
+      }, [task?.sim]);
+
       const actions = {
         goToTab: (t) => setTab(t),
 
@@ -1206,7 +1209,7 @@ window.__ModuleLoader__.load({
               const r = await api('/ensure-default', { method: 'POST' });
               targetBaseId = r.base?.id;
             }
-            setTask({ label: `正在索引「${payload.dirPath}」…`, percent: 30 });
+            setTask({ label: `正在索引「${payload.dirPath}」…`, percent: 30, sim: true });
             const r = await api('/documents', { method: 'POST', body: { dirPath: payload.dirPath, baseId: targetBaseId } });
             setTask({ label: '索引完成', percent: 100 });
             setImportReport({ ...r, dirPath: payload.dirPath });
@@ -1218,7 +1221,7 @@ window.__ModuleLoader__.load({
         async rescanFolder(baseId, folder) {
           setPendingAction(`rescan:${folder}`);
           try {
-            setTask({ label: `正在重新扫描「${folder}」…`, percent: 30 });
+            setTask({ label: `正在重新扫描「${folder}」…`, percent: 30, sim: true });
             const r = await api('/documents', { method: 'POST', body: { dirPath: folder, baseId } });
             setTask({ label: '扫描完成', percent: 100 });
             setImportReport({ ...r, dirPath: folder });
@@ -1521,14 +1524,6 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
-        // 等待动画样式：进入插件即注入（含 dispose 清理）。
-        ctx.effect(() => {
-          ensureStripeAnimation();
-          return () => {
-            if (stylesCleanup) { stylesCleanup(); stylesCleanup = null; }
-          };
-        }, 'dsh-destinywind-rag: stripe animation');
-
         // 原生目录选择器：每次渲染时按需解析（服务可能晚注册，与 computer-user 同策略）。
         let directoryPicker = resolveDirectoryPicker(ctx);
 
