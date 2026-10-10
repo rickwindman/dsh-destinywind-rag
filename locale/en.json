@@ -1,4 +1,8 @@
 {
+  "meta": {
+    "title": "Knowledge Base",
+    "description": "Knowledge base / RAG: local-first hybrid retrieval (BM25 + vector + RRF fusion), dual vector engines (OpenAI-compatible / custom HTTP endpoints, local ONNX / Ollama), zero-config out of the box."
+  },
   "name": "Knowledge Base",
   "description": "Manage knowledge bases, vector model bindings, and retrieval tests; works out of the box.",
   "tabBases": "Bases",
