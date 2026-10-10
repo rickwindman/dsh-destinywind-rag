@@ -1,0 +1,14 @@
+# macOS / Windows junk
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+*.log
+npm-debug.log*
+
+# 本地测试与临时数据
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.probe/
