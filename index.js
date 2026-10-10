@@ -259,6 +259,10 @@ function makeHandler(getConfig) {
         const report = await svc.reindexBase(baseId);
         return json(res, 200, { ok: true, report });
       }
+      // 重建进度轮询（长任务期间 UI 每 800ms 拉一次，避免「像卡死」）。
+      if (path === '/reindex/progress' && method === 'GET') {
+        return json(res, 200, { ok: true, progress: svc.getReindexProgress() });
+      }
 
       // ── 检索 ──
       if (method === 'POST' && path === '/search') {
