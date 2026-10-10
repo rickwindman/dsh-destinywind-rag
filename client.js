@@ -137,7 +137,7 @@ window.__ModuleLoader__.load({
 
     // ───────────────────────── 标签页 1：知识库列表 ─────────────────────────
 
-    function BasesTab({ state, actions }) {
+    function BasesTab({ state, actions, pickDirectory }) {
       const [dialog, setDialog] = React.useState(null);
       const { bases, task } = state;
 
@@ -228,6 +228,7 @@ window.__ModuleLoader__.load({
         }) : null,
         dialog?.kind === 'addFolder' ? React.createElement(AddFolderDialog, {
           bases: state.bases,
+          pickDirectory,
           onClose: () => setDialog(null),
           onConfirm: (payload) => { actions.addFolder(payload); setDialog(null); },
         }) : null,
@@ -270,25 +271,45 @@ window.__ModuleLoader__.load({
     }
 
     /** 添加文件夹：路径输入 + 目录浏览 + 确认后开始索引。 */
-    function AddFolderDialog({ bases, onClose, onConfirm }) {
+    function AddFolderDialog({ bases, onClose, onConfirm, pickDirectory }) {
       const [path, setPath] = React.useState('');
       const [browsing, setBrowsing] = React.useState(false);
       const [entries, setEntries] = React.useState(null);
       const [baseId, setBaseId] = React.useState(bases[0]?.id ?? '');
       const [error, setError] = React.useState('');
+      const [browsingBusy, setBrowsingBusy] = React.useState(false);
 
-      // 目录浏览：优先用宿主提供的原生选择器，退回手输路径。
+      // 目录浏览：优先宿主原生选择器（uiWorkspace.pickDirectory，弹系统文件夹对话框），
+      // 其次全局注入的 picker；两者都不可用才退回手输模式。
       async function browse() {
         setError('');
-        const picker = globalThis.__DSH_DIRECTORY_PICKER__;
-        if (typeof picker === 'function') {
+        if (typeof pickDirectory === 'function') {
+          setBrowsingBusy(true);
           try {
-            const picked = await picker();
+            const picked = await pickDirectory();
+            // 用户取消返回 null：不报错、不进手输模式，直接留在原状态。
+            if (typeof picked === 'string' && picked.trim() !== '') {
+              setPath(picked);
+              return;
+            }
+            if (picked === null || picked === undefined) return;
+          } catch (err) {
+            setError(`目录选择器不可用：${String(err?.message ?? err)}（可手动输入路径）`);
+          } finally {
+            setBrowsingBusy(false);
+          }
+        }
+        const fallback = globalThis.__DSH_DIRECTORY_PICKER__;
+        if (typeof fallback === 'function') {
+          try {
+            const picked = await fallback();
             if (typeof picked === 'string' && picked.trim() !== '') { setPath(picked); return; }
+            if (picked === null || picked === undefined) return;
           } catch (err) {
             setError(`目录选择器不可用：${String(err?.message ?? err)}`);
           }
         }
+        // 无任何原生选择器：展开手输 + 子目录列出模式。
         setBrowsing(true);
       }
 
@@ -314,7 +335,10 @@ window.__ModuleLoader__.load({
         React.createElement('label', { style: { fontSize: 12, color: T.text2 } }, '文件夹路径'),
         React.createElement('div', { style: { display: 'flex', gap: 8 } },
           React.createElement('input', { style: { ...styles.input, flex: 1 }, value: path, placeholder: '例如：D:\\Documents\\产品资料', onChange: (e) => setPath(e.target.value) }),
-          React.createElement('button', { type: 'button', style: styles.btn, onClick: () => { void browse(); } }, '浏览…'),
+          React.createElement('button', {
+            type: 'button', style: styles.btn, disabled: browsingBusy,
+            onClick: () => { void browse(); },
+          }, browsingBusy ? '打开选择器…' : '浏览…'),
         ),
         React.createElement('div', { style: { fontSize: 11.5, color: T.text2 } }, '支持 PDF、DOCX、PPTX、Markdown、TXT；子目录会递归索引。'),
 
@@ -665,29 +689,121 @@ window.__ModuleLoader__.load({
 
     // ───────────────────────── 标签页 4：状态 ─────────────────────────
 
+    /**
+     * 可下载模型清单：文本向量 + 图文多模态（CLIP）。
+     * 数据来自宿主 /models 接口（lib/local-models.js 的目录），此处只渲染。
+     */
+    function ModelCatalog({ detect, downloads, actions, disabled }) {
+      const [models, setModels] = React.useState(null);
+      const [busy, setBusy] = React.useState('');
+      const [error, setError] = React.useState('');
+
+      React.useEffect(() => {
+        void (async () => {
+          try {
+            const r = await api('/models');
+            setModels(r.models ?? []);
+          } catch (err) {
+            setError(String(err?.message ?? err));
+          }
+        })();
+      }, []);
+
+      const statusByModel = {};
+      for (const d of downloads ?? []) statusByModel[d.model] = d;
+
+      function kindBadge(m) {
+        if (m.multimodal) return React.createElement('span', { key: 'mm', style: styles.pill('#7c3aed') }, '图文多模态');
+        if (m.kind === 'reranking') return React.createElement('span', { key: 'rr', style: styles.pill(T.warn) }, '重排序');
+        return React.createElement('span', { key: 'tx', style: styles.pill(T.brand) }, '文本向量');
+      }
+
+      async function download(model) {
+        setBusy(model);
+        setError('');
+        try {
+          await api('/models/download', { method: 'POST', body: { model } });
+          await actions.refreshStatus();
+        } catch (err) {
+          setError(String(err?.message ?? err) + (err?.suggestion ? ` — ${err.suggestion}` : ''));
+        } finally {
+          setBusy('');
+        }
+      }
+
+      return React.createElement('div', null,
+        error ? React.createElement('div', { style: styles.error }, error) : null,
+        models === null
+          ? React.createElement('div', { style: { fontSize: 12.5, color: T.text2 } }, '正在读取模型清单…')
+          : React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+              models.map((m) => {
+                const st = statusByModel[m.id];
+                const isReady = st?.status === 'ready' || detect?.onnx?.downloaded && m.id === detect?.onnx?.model;
+                return React.createElement('div', {
+                  key: m.id,
+                  style: { display: 'flex', gap: 10, alignItems: 'center', padding: '9px 12px', borderRadius: 8, border: `1px solid ${T.border}` },
+                },
+                  React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                    React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
+                      React.createElement('span', { style: { fontSize: 13, fontWeight: 600 } }, m.name),
+                      kindBadge(m),
+                      m.recommended ? React.createElement('span', { style: styles.pill(T.ok) }, '推荐') : null,
+                      m.experimental ? React.createElement('span', { style: styles.pill(T.text2) }, '实验') : null,
+                      isReady ? React.createElement('span', { style: styles.pill(T.ok) }, '已就绪') : null,
+                    ),
+                    React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 2 } },
+                      `${m.subtitle ?? ''} · 约 ${m.sizeMB ?? '?'} MB`),
+                  ),
+                  React.createElement('button', {
+                    type: 'button',
+                    style: styles.btnSm,
+                    disabled: disabled || busy === m.id,
+                    onClick: () => { void download(m.id); },
+                  }, busy === m.id ? '开始下载…' : st?.status === 'downloading' ? '下载中…' : '下载'),
+                );
+              }),
+            ),
+      );
+    }
+
     function StatusTab({ state, actions }) {
       const { status } = state;
       if (!status) return React.createElement('div', { style: { padding: 20, color: T.text2, fontSize: 13 } }, '正在读取状态…');
       const detect = status.detect ?? {};
       const downloads = status.downloads ?? [];
       const stats = status.stats ?? {};
+      // 运行时不可用：显示安装引导而不是让用户点下载后吃 0% 失败。
+      const onnxUnavailable = status.onnxAvailable === false;
 
       return React.createElement(React.Fragment, null,
+        onnxUnavailable ? React.createElement('div', { style: styles.card },
+          React.createElement('div', { style: { padding: 16 } },
+            React.createElement('div', { style: { fontSize: 13.5, fontWeight: 600, marginBottom: 6 } },
+              '本地向量模型需要先安装运行时依赖'),
+            React.createElement('div', { style: { fontSize: 12.5, color: T.text2, marginBottom: 8, lineHeight: 1.7 } },
+              '正常情况下这些依赖会随插件自动安装（optionalDependencies）。如果安装时被跳过或失败，检索仍可正常使用（自动降级为关键词模式），也可改用 Ollama 或远程端点。要启用内置本地模型，请在插件目录执行：'),
+            React.createElement('div', { style: { ...styles.mono, padding: '8px 12px', borderRadius: 8, background: T.surfaceAlt, marginBottom: 10, wordBreak: 'break-all' } },
+              'npm i @huggingface/transformers@4.3.1 onnxruntime-node@1.30.0'),
+            React.createElement('div', { style: { fontSize: 12, color: T.text2 } },
+              '安装完成后重启 DSH 并回到本页选择模型下载。首次使用会自动下载模型权重，需要网络。'),
+          ),
+        ) : null,
+
         React.createElement('div', { style: styles.card },
           React.createElement('div', { style: styles.cardHead },
             React.createElement('div', null,
               React.createElement('div', { style: styles.title }, '本地模型'),
-              React.createElement('div', { style: styles.sub }, '首次使用本地向量模型时自动下载权重；下载完成前检索会自动降级为关键词模式。'),
+              React.createElement('div', { style: styles.sub }, '选择模型下载；下载完成前检索会自动降级为关键词模式。图文模型支持把图片加入知识库（文字搜图）。'),
             ),
-            React.createElement('div', { style: { display: 'flex', gap: 8 } },
-              React.createElement('button', { type: 'button', style: styles.btn, onClick: () => actions.downloadModel(detect?.onnx?.model) }, '下载 / 预热内置模型'),
-              React.createElement('button', { type: 'button', style: styles.btn, onClick: () => actions.refreshStatus() }, '刷新'),
-            ),
+            React.createElement('button', { type: 'button', style: styles.btn, onClick: () => actions.refreshStatus() }, '刷新'),
           ),
           React.createElement('div', { style: styles.cardBody },
+            React.createElement(ModelCatalog, { detect, downloads, actions, disabled: onnxUnavailable }),
             downloads.length === 0
-              ? React.createElement('div', { style: { fontSize: 12.5, color: T.text2 } }, '暂无本地模型任务。')
-              : downloads.map((d) => React.createElement('div', { key: d.model, style: { marginBottom: 14 } },
+              ? null
+              : React.createElement('div', { style: { marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}` } },
+                  React.createElement('div', { style: { fontSize: 12.5, color: T.text2, marginBottom: 10 } }, '下载任务：'),
+                  downloads.map((d) => React.createElement('div', { key: d.model, style: { marginBottom: 14 } },
                   React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6, gap: 10 } },
                     React.createElement('span', null,
                       React.createElement('b', null, d.model),
@@ -710,7 +826,7 @@ window.__ModuleLoader__.load({
                       React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => actions.disableVector() }, '改用纯关键词检索'),
                     ),
                   ) : null,
-                )),
+                ))),
           ),
         ),
 
@@ -757,7 +873,7 @@ window.__ModuleLoader__.load({
 
     // ───────────────────────── 设置页主组件 ─────────────────────────
 
-    function KnowledgeSettingsPage() {
+    function KnowledgeSettingsPage({ pickDirectory }) {
       const [tab, setTab] = React.useState('bases');
       const [bases, setBases] = React.useState([]);
       const [providers, setProviders] = React.useState([]);
@@ -1011,7 +1127,7 @@ window.__ModuleLoader__.load({
             React.createElement('button', { key, type: 'button', style: styles.tab(tab === key), onClick: () => setTab(key) }, label)),
         ),
 
-        tab === 'bases' ? React.createElement(BasesTab, { state, actions }) : null,
+        tab === 'bases' ? React.createElement(BasesTab, { state, actions, pickDirectory }) : null,
         tab === 'providers' ? React.createElement(ProvidersTab, { state, actions }) : null,
         tab === 'search' ? React.createElement(SearchTab, { state, actions }) : null,
         tab === 'status' ? React.createElement(StatusTab, { state, actions }) : null,
@@ -1117,14 +1233,34 @@ window.__ModuleLoader__.load({
 
     // ───────────────────────── 注册 ─────────────────────────
 
+    /** 取原生目录选择器：uiWorkspace.pickDirectory（系统文件夹对话框）。 */
+    function resolveDirectoryPicker(ctx) {
+      try {
+        const uiWorkspace = typeof ctx?.get === 'function' ? ctx.get('uiWorkspace') : undefined;
+        if (uiWorkspace && typeof uiWorkspace.pickDirectory === 'function') {
+          return (opts) => uiWorkspace.pickDirectory(opts);
+        }
+      } catch {
+        /* uiWorkspace 未注册时保持 undefined */
+      }
+      return null;
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
+        // 原生目录选择器：每次渲染时按需解析（服务可能晚注册，与 computer-user 同策略）。
+        let directoryPicker = resolveDirectoryPicker(ctx);
+
         // 设置页「知识库」栏
-        ctx.effect(() => ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register(
-          { name: SETTINGS_SLOT, id: SETTINGS_ENTRY_ID, order: SETTINGS_ORDER, label: '知识库' },
-          KnowledgeSettingsPage,
-        )), 'dsh-destinywind-rag: settings section');
+        ctx.effect(() => ctx.slots.inject(SETTINGS_SLOT, () => {
+          // slot 回调在每次打开设置页时执行：重新解析可选服务（晚注册/HMR 友好）。
+          directoryPicker = resolveDirectoryPicker(ctx) ?? directoryPicker;
+          return ctx.slots.register(
+            { name: SETTINGS_SLOT, id: SETTINGS_ENTRY_ID, order: SETTINGS_ORDER, label: '知识库' },
+            (props) => KnowledgeSettingsPage({ ...props, pickDirectory: directoryPicker }),
+          );
+        }), 'dsh-destinywind-rag: settings section');
 
         // 输入框旁的知识库选择器
         ctx.effect(() => ctx.slots.inject(COMPOSER_SLOT, () => ctx.slots.register(
