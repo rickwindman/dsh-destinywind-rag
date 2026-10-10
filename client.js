@@ -139,7 +139,33 @@ window.__ModuleLoader__.load({
 
     function BasesTab({ state, actions, pickDirectory }) {
       const [dialog, setDialog] = React.useState(null);
+      const [expandedBaseId, setExpandedBaseId] = React.useState('');
+      const [folders, setFolders] = React.useState(null);
+      const [foldersLoading, setFoldersLoading] = React.useState(false);
       const { bases, task } = state;
+
+      // 展开/收起某库的来源文件夹视图。
+      async function toggleFolders(baseId) {
+        if (expandedBaseId === baseId) { setExpandedBaseId(''); setFolders(null); return; }
+        setExpandedBaseId(baseId);
+        setFoldersLoading(true);
+        setFolders(null);
+        try {
+          const r = await api(`/bases/${encodeURIComponent(baseId)}/folders`);
+          setFolders(r.folders ?? []);
+        } catch (err) {
+          setFolders([]);
+        } finally {
+          setFoldersLoading(false);
+        }
+      }
+
+      function confirmDeleteFolder(base, folder) {
+        setDialog({
+          kind: 'deleteFolder', base, folder,
+          // 惰性确认：点「确认」时才执行删除。
+        });
+      }
 
       return React.createElement(React.Fragment, null,
         task ? React.createElement('div', { style: styles.card },
@@ -179,10 +205,12 @@ window.__ModuleLoader__.load({
                     React.createElement('th', { style: styles.th }, '最后更新'),
                     React.createElement('th', { style: { ...styles.th, textAlign: 'right' } }, '操作'),
                   )),
-                  React.createElement('tbody', null, bases.map((base) => {
+                  React.createElement('tbody', null, bases.flatMap((base) => {
                     const st = STATUS_TEXT[base.status] ?? STATUS_TEXT.ready;
                     const busy = state.busyBaseId === base.id;
-                    return React.createElement('tr', { key: base.id },
+                    const expanded = expandedBaseId === base.id;
+                    const rows = [];
+                    rows.push(React.createElement('tr', { key: base.id },
                       React.createElement('td', { style: styles.td },
                         React.createElement('div', { style: { fontWeight: 600 } }, base.name),
                         React.createElement('div', { style: { ...styles.mono, color: T.text2, fontSize: 11 } },
@@ -197,13 +225,33 @@ window.__ModuleLoader__.load({
                       React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2 } },
                         base.updatedAt ? new Date(base.updatedAt).toLocaleString('zh-CN') : '—'),
                       React.createElement('td', { style: { ...styles.td, textAlign: 'right', whiteSpace: 'nowrap' } },
+                        React.createElement('button', {
+                          type: 'button',
+                          style: { ...styles.btnSm, color: expanded ? T.brand : T.text, borderColor: expanded ? T.brand : T.border },
+                          onClick: () => { void toggleFolders(base.id); },
+                        }, expanded ? '📁 收起' : '📁 文件夹'),
+                        ' ',
                         React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => setDialog({ kind: 'rename', base }) }, '重命名'),
                         ' ',
                         React.createElement('button', { type: 'button', style: styles.btnSm, disabled: busy, onClick: () => actions.reindex(base) }, '重建索引'),
                         ' ',
                         React.createElement('button', { type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error }, onClick: () => setDialog({ kind: 'delete', base }) }, '删除'),
                       ),
-                    );
+                    ));
+                    if (expanded) {
+                      rows.push(React.createElement('tr', { key: base.id + ':folders' },
+                        React.createElement('td', { colSpan: 5, style: { ...styles.td, background: T.surfaceAlt } },
+                          foldersLoading
+                            ? React.createElement('div', { style: { fontSize: 12.5, color: T.text2, padding: '8px 0' } }, '正在读取来源文件夹…')
+                            : React.createElement(FolderList, {
+                                base, folders,
+                                onDelete: confirmDeleteFolder,
+                                onRescan: (folder) => { void actions.rescanFolder(base.id, folder); },
+                              }),
+                        ),
+                      ));
+                    }
+                    return rows;
                   })),
                 ),
           ),
@@ -221,10 +269,18 @@ window.__ModuleLoader__.load({
         }) : null,
         dialog?.kind === 'delete' ? React.createElement(ConfirmDialog, {
           title: '删除知识库',
-          message: `确定要删除「${dialog.base.name}」吗？将同时删除其中的 ${dialog.base.docCount} 个文档及其全部索引数据，且不可恢复。`,
+          message: `确定要删除知识库「${dialog.base.name}」吗？将删除插件内的 ${dialog.base.docCount} 个文档的索引记录（含全部分块与向量数据），此操作不可恢复。\n\n磁盘上的原文件不会被删除或修改，可随时重新添加文件夹并重建索引。`,
           danger: true,
           onClose: () => setDialog(null),
           onConfirm: () => { actions.deleteBase(dialog.base.id); setDialog(null); },
+        }) : null,
+        dialog?.kind === 'deleteFolder' ? React.createElement(ConfirmDialog, {
+          title: '移除文件夹索引',
+          message: `确定要移除「${dialog.folder}」导入的全部索引记录吗？\n\n只删除插件内的索引数据，磁盘上的原文件不会被删除或修改；之后可随时点「重新扫描」重新索引进库。`,
+          danger: true,
+          confirmLabel: '移除索引',
+          onClose: () => setDialog(null),
+          onConfirm: () => { actions.deleteFolderIndex(dialog.base.id, dialog.folder); setDialog(null); },
         }) : null,
         dialog?.kind === 'addFolder' ? React.createElement(AddFolderDialog, {
           bases: state.bases,
@@ -369,6 +425,89 @@ window.__ModuleLoader__.load({
             : bases.map((b) => React.createElement('option', { key: b.id, value: b.id }, b.name)),
         ),
         error ? React.createElement('div', { style: styles.error }, error) : null,
+      );
+    }
+
+    /**
+     * 导入报告：为什么有的文件没进索引，一目了然。
+     * 成功 / 内容重复跳过 / 按扩展名跳过明细（含旧版 Office 提示）/ 失败原因。
+     */
+    /**
+     * 来源文件夹清单：路径 + 文档数 + 分块数，支持「删除索引」（原文件不动）与「重新扫描」。
+     */
+    function FolderList({ base, folders, onDelete, onRescan }) {
+      if (!folders || folders.length === 0) {
+        return React.createElement('div', { style: { fontSize: 12.5, color: T.text2, padding: '8px 4px' } },
+          '该知识库还没有按文件夹导入的来源（可从「添加文件夹」导入，或全部是手工添加的文本）。',
+        );
+      }
+      return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' } },
+        React.createElement('div', { style: { fontSize: 11.5, color: T.text2 } },
+          '以下文件夹的文件已索引进本库；「删除索引」只移除插件内的索引记录，磁盘原文件不受影响。'),
+        folders.map((f) => React.createElement('div', {
+          key: f.folder,
+          style: { display: 'flex', gap: 10, alignItems: 'center', padding: '7px 10px', borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` },
+        },
+          React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+            React.createElement('div', { style: { ...styles.mono, fontSize: 12, wordBreak: 'break-all' } }, `📁 ${f.folder}`),
+            React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 2 } },
+              `${f.documents} 个文档 · ${f.chunks} 个分块`),
+          ),
+          React.createElement('button', {
+            type: 'button', style: styles.btnSm, title: `重新扫描 ${f.folder}（增量索引新增文件）`,
+            onClick: () => onRescan(f.folder),
+          }, '↻ 重新扫描'),
+          React.createElement('button', {
+            type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error },
+            onClick: () => onDelete(base, f.folder),
+          }, '删除索引'),
+        )),
+      );
+    }
+
+    function ImportReportDialog({ report, onClose }) {
+      const extEntries = Object.entries(report.skippedByExt ?? {}).sort((a, b) => b[1] - a[1]);
+      const oldOffice = extEntries.filter(([ext]) => ['.doc', '.ppt', '.xls', '.wps'].includes(ext));
+      return React.createElement(Modal, {
+        title: '导入完成', onClose, confirmLabel: '知道了', onConfirm: () => {},
+      },
+        React.createElement('div', { style: { fontSize: 12.5, color: T.text2, marginBottom: 10 } },
+          `扫描目录：${report.dirPath ?? '—'}（含全部子目录层级，无深度限制；共扫描 ${report.folders ?? 0} 个文件夹）`),
+        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 } },
+          React.createElement('div', { style: { padding: 10, borderRadius: 8, border: `1px solid ${T.ok}` } },
+            React.createElement('div', { style: { fontSize: 18, fontWeight: 700, color: T.ok } }, report.imported ?? 0),
+            React.createElement('div', { style: { fontSize: 11.5, color: T.text2 } }, '新索引进库')),
+          React.createElement('div', { style: { padding: 10, borderRadius: 8, border: `1px solid ${T.border}` } },
+            React.createElement('div', { style: { fontSize: 18, fontWeight: 700 } }, report.duplicate ?? 0),
+            React.createElement('div', { style: { fontSize: 11.5, color: T.text2 } }, '内容重复跳过')),
+          React.createElement('div', { style: { padding: 10, borderRadius: 8, border: `1px solid ${T.warn}` } },
+            React.createElement('div', { style: { fontSize: 18, fontWeight: 700, color: T.warn } }, report.skipped ?? 0),
+            React.createElement('div', { style: { fontSize: 11.5, color: T.text2 } }, '格式不支持跳过')),
+        ),
+        extEntries.length > 0 ? React.createElement('div', { style: { marginBottom: 12 } },
+          React.createElement('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 6 } }, '未索引的文件类型：'),
+          React.createElement('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+            extEntries.map(([ext, n]) => React.createElement('span', { key: ext, style: styles.pill(T.warn) }, `${ext} × ${n}`)),
+          ),
+          oldOffice.length > 0 ? React.createElement('div', { style: { fontSize: 12, color: T.warn, marginTop: 8 } },
+            `检测到旧版 Office 格式（${oldOffice.map(([e]) => e).join('、')}）：插件无法直接解析，请用 Office/WPS 另存为 .docx / .pptx / .xlsx 后重新扫描该文件夹。`) : null,
+          React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 8 } },
+            '当前支持：PDF、DOCX、PPTX、Markdown、TXT（及 JSON/CSV/LOG 等纯文本）。'),
+        ) : null,
+        (report.failed ?? []).length > 0 ? React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 6, color: T.error } },
+            `失败 ${report.failed.length} 个：`),
+          React.createElement('div', { style: { maxHeight: 140, overflow: 'auto', border: `1px solid ${T.border}`, borderRadius: 8 } },
+            report.failed.map((f, i) => React.createElement('div', { key: i, style: { padding: '6px 10px', fontSize: 12, borderBottom: `1px solid ${T.border}` } },
+              React.createElement('div', { style: { ...styles.mono, wordBreak: 'break-all' } }, f.path),
+              React.createElement('div', { style: { color: T.error } }, f.error),
+            )),
+          ),
+        ) : null,
+        (report.imported ?? 0) === 0 && extEntries.length > 0
+          ? React.createElement('div', { style: { marginTop: 10, padding: 10, borderRadius: 8, background: T.surfaceAlt, fontSize: 12.5 } },
+              '本次没有任何文件被索引进库——全部是上面列出的不支持格式，或内容与库中已有文档重复。')
+          : null,
       );
     }
 
@@ -886,6 +1025,7 @@ window.__ModuleLoader__.load({
       const [searchResult, setSearchResult] = React.useState(null);
       const [searching, setSearching] = React.useState(false);
       const [toast, setToast] = React.useState(null);
+      const [importReport, setImportReport] = React.useState(null);
 
       const notify = React.useCallback((message, kind) => {
         setToast({ message, kind });
@@ -976,14 +1116,32 @@ window.__ModuleLoader__.load({
               const r = await api('/ensure-default', { method: 'POST' });
               targetBaseId = r.base?.id;
             }
-            setTask({ label: `正在索引「${payload.dirPath}」`, percent: 20 });
+            setTask({ label: `正在索引「${payload.dirPath}」`, percent: 30 });
             const r = await api('/documents', { method: 'POST', body: { dirPath: payload.dirPath, baseId: targetBaseId } });
             setTask({ label: '索引完成', percent: 100 });
-            notify(`索引完成：新增 ${r.imported} 个文档，跳过 ${r.skipped} 个${r.failed?.length ? `，失败 ${r.failed.length} 个` : ''}`,
-              r.failed?.length ? 'error' : 'ok');
+            setImportReport({ ...r, dirPath: payload.dirPath });
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
           finally { setTimeout(() => setTask(null), 1500); }
+        },
+
+        async rescanFolder(baseId, folder) {
+          try {
+            setTask({ label: `正在重新扫描「${folder}」`, percent: 30 });
+            const r = await api('/documents', { method: 'POST', body: { dirPath: folder, baseId } });
+            setTask({ label: '扫描完成', percent: 100 });
+            setImportReport({ ...r, dirPath: folder });
+            await refresh();
+          } catch (err) { notify(String(err?.message ?? err), 'error'); }
+          finally { setTimeout(() => setTask(null), 1500); }
+        },
+
+        async deleteFolderIndex(baseId, folder) {
+          try {
+            const r = await api(`/bases/${encodeURIComponent(baseId)}/folders/delete`, { method: 'POST', body: { folder } });
+            notify(`已移除 ${r.deleted} 个文档的索引记录（原文件未动）`, 'ok');
+            await refresh();
+          } catch (err) { notify(String(err?.message ?? err), 'error'); }
         },
 
         async saveProvider(provider, payload) {
@@ -1131,6 +1289,11 @@ window.__ModuleLoader__.load({
         tab === 'providers' ? React.createElement(ProvidersTab, { state, actions }) : null,
         tab === 'search' ? React.createElement(SearchTab, { state, actions }) : null,
         tab === 'status' ? React.createElement(StatusTab, { state, actions }) : null,
+
+        importReport ? React.createElement(ImportReportDialog, {
+          report: importReport,
+          onClose: () => setImportReport(null),
+        }) : null,
 
         toast ? React.createElement('div', {
           style: {
