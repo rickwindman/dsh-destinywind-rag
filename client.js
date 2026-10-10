@@ -20,6 +20,25 @@ window.__ModuleLoader__.load({
     const React = require('react');
     const API_BASE = '/dsh-destinywind-rag';
 
+    // 等待动画：进度百分比静止的阶段（如导入中后端逐文件处理）也要让进度条
+    // 「活着」，否则用户会当成卡死。用 DSH 内建 styles.insert 注入，随 Client
+    // 卸载自动清理，全局命名空间只加一个 rag 专属 class。
+    let stylesCleanup = null;
+    function ensureStripeAnimation() {
+      if (stylesCleanup) return;
+      stylesCleanup = require('styles').insert(`
+        @keyframes rag-stripe {
+          from { background-position: 0 0; }
+          to { background-position: 28px 0; }
+        }
+        .rag-bar-busy > i {
+          background-image: linear-gradient(135deg, rgba(255,255,255,0) 0 8px, rgba(255,255,255,0.45) 8px 14px) !important;
+          background-size: 28px 28px !important;
+          animation: rag-stripe 0.9s linear infinite !important;
+        }
+      `);
+    }
+
     const SETTINGS_SLOT = 'settings.section';
     const SETTINGS_ENTRY_ID = 'destinywind-rag';
     // 18 = 排在「记忆」(16) 与「技能」(17) 之后，靠近插件相关页面。
@@ -131,9 +150,14 @@ window.__ModuleLoader__.load({
         React.createElement('div', { style: { fontSize: 14, fontWeight: 600 } }, props.title),
         props.children,
         React.createElement('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: 8 } },
-          React.createElement('button', { type: 'button', style: styles.btn, onClick: () => ref.current?.close() }, '取消'),
+          React.createElement('button', { type: 'button', style: styles.btn, disabled: !!props.busy, onClick: () => ref.current?.close() }, '取消'),
           props.onConfirm
-            ? React.createElement('button', { type: 'button', style: props.danger ? styles.btnDanger : styles.btnPrimary, onClick: () => { props.onConfirm(); ref.current?.close(); } }, props.confirmLabel ?? '确定')
+            ? React.createElement('button', {
+                type: 'button',
+                style: props.danger ? styles.btnDanger : styles.btnPrimary,
+                disabled: !!props.busy,
+                onClick: () => { props.onConfirm(); ref.current?.close(); },
+              }, props.busy ? '处理中…' : (props.confirmLabel ?? '确定'))
             : null,
         ),
       ));
@@ -178,7 +202,10 @@ window.__ModuleLoader__.load({
               React.createElement('span', null, `⏳ ${task.label}`),
               React.createElement('span', { style: styles.mono }, `${task.percent}%`),
             ),
-            React.createElement('div', { style: styles.bar }, React.createElement('i', { style: styles.barFill(task.percent) })),
+            // 条纹流动：即使后端没有逐项进度，条也 visibly 活着，绝不「像卡死」。
+            React.createElement('div', { className: 'rag-bar-busy', style: styles.bar }, React.createElement('i', { style: styles.barFill(task.percent) })),
+            React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 6 } },
+              '正在处理，请稍候——文件夹很大或首次下载模型时可能需要几分钟；页面可以随时关闭，任务不会中断。'),
           )) : null,
 
         React.createElement('div', { style: styles.card },
@@ -188,9 +215,9 @@ window.__ModuleLoader__.load({
               React.createElement('div', { style: styles.sub }, '每个知识库可独立绑定向量模型；更换模型后需重建索引。'),
             ),
             React.createElement('div', { style: { display: 'flex', gap: 8 } },
-              React.createElement('button', { type: 'button', style: styles.btn, onClick: () => setDialog({ kind: 'addFolder' }) }, '📁 添加文件夹'),
-              React.createElement('button', { type: 'button', style: styles.btn, onClick: () => actions.reindexAll() }, '↻ 重建索引'),
-              React.createElement('button', { type: 'button', style: styles.btnPrimary, onClick: () => setDialog({ kind: 'newBase' }) }, '＋ 新建知识库'),
+              React.createElement('button', { type: 'button', style: styles.btn, disabled: !!state.pendingAction, onClick: () => setDialog({ kind: 'addFolder' }) }, '📁 添加文件夹'),
+              React.createElement('button', { type: 'button', style: styles.btn, disabled: !!state.pendingAction || bases.length === 0, onClick: () => actions.reindexAll() }, '↻ 重建索引'),
+              React.createElement('button', { type: 'button', style: styles.btnPrimary, disabled: !!state.pendingAction, onClick: () => setDialog({ kind: 'newBase' }) }, '＋ 新建知识库'),
             ),
           ),
           React.createElement('div', { style: { padding: 0 } },
@@ -256,6 +283,7 @@ window.__ModuleLoader__.load({
                             ? React.createElement('div', { style: { fontSize: 12.5, color: T.text2, padding: '8px 0' } }, '正在读取来源文件夹…')
                             : React.createElement(FolderList, {
                                 base, folders,
+                                pendingAction: state.pendingAction,
                                 onDelete: confirmDeleteFolder,
                                 onRescan: (folder) => { void actions.rescanFolder(base.id, folder); },
                               }),
@@ -446,7 +474,7 @@ window.__ModuleLoader__.load({
     /**
      * 来源文件夹清单：路径 + 文档数 + 分块数，支持「删除索引」（原文件不动）与「重新扫描」。
      */
-    function FolderList({ base, folders, onDelete, onRescan }) {
+    function FolderList({ base, folders, onDelete, onRescan, pendingAction }) {
       if (!folders || folders.length === 0) {
         return React.createElement('div', { style: { fontSize: 12.5, color: T.text2, padding: '8px 4px' } },
           '该知识库还没有按文件夹导入的来源（可从「添加文件夹」导入，或全部是手工添加的文本）。',
@@ -466,13 +494,16 @@ window.__ModuleLoader__.load({
           ),
           React.createElement('div', { style: { display: 'flex', gap: 6, flex: 'none', flexWrap: 'wrap', justifyContent: 'flex-end' } },
             React.createElement('button', {
-              type: 'button', style: styles.btnSm, title: `重新扫描 ${f.folder}（增量索引新增文件）`,
+              type: 'button', style: styles.btnSm,
+              disabled: pendingAction === `rescan:${f.folder}` || !!pendingAction,
+              title: `重新扫描 ${f.folder}（增量索引新增文件）`,
               onClick: () => onRescan(f.folder),
-            }, '↻ 重新扫描'),
+            }, pendingAction === `rescan:${f.folder}` ? '扫描中…' : '↻ 重新扫描'),
             React.createElement('button', {
               type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error },
+              disabled: !!pendingAction,
               onClick: () => onDelete(base, f.folder),
-            }, '删除索引'),
+            }, pendingAction === 'deleteFolder' ? '移除中…' : '删除索引'),
           ),
         )),
       );
@@ -543,6 +574,13 @@ window.__ModuleLoader__.load({
             providers.length === 0
               ? React.createElement('div', { style: { padding: 26, textAlign: 'center', color: T.text2, fontSize: 13 } }, '暂无 provider。点击「新增 provider」添加，或直接添加文档让插件自动检测。')
               : React.createElement('table', { style: styles.table },
+                  React.createElement('colgroup', null,
+                    React.createElement('col', { style: { width: '22%' } }),
+                    React.createElement('col', { style: { width: '18%' } }),
+                    React.createElement('col', { style: { width: '22%' } }),
+                    React.createElement('col', { style: { width: '18%' } }),
+                    React.createElement('col', { style: { width: '20%' } }),
+                  ),
                   React.createElement('thead', null, React.createElement('tr', null,
                     React.createElement('th', { style: styles.th }, '类型 / 名称'),
                     React.createElement('th', { style: styles.th }, '端点'),
@@ -555,32 +593,34 @@ window.__ModuleLoader__.load({
                     const testing = state.testingProviderId === p.id;
                     return React.createElement('tr', { key: p.id },
                       React.createElement('td', { style: styles.td },
-                        React.createElement('div', { style: { fontWeight: 600 } }, `${meta.icon} ${p.name}`),
+                        React.createElement('div', { style: { fontWeight: 600, ...styles.clamp2 }, title: p.name }, `${meta.icon} ${p.name}`),
                         React.createElement('div', { style: { fontSize: 11, color: T.text2 } }, meta.short),
                       ),
-                      React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-                        p.kind === 'onnx' ? '（本地，无需端点）' : (p.endpoint || '—')),
-                      React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2 } }, p.model || '—'),
+                      React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2, fontSize: 11.5 } },
+                        React.createElement('div', { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, title: p.endpoint },
+                          p.kind === 'onnx' ? '（本地）' : (p.endpoint || '—'))),
+                      React.createElement('td', { style: { ...styles.td, ...styles.mono, color: T.text2, fontSize: 11.5 } },
+                        React.createElement('div', { style: styles.clamp2, title: p.model }, p.model || '—')),
                       React.createElement('td', { style: styles.td },
                         testing
                           ? React.createElement('div', null,
                               React.createElement('span', { style: styles.pill(T.text2) }, '测试中…'),
                               state.testProgress
-                                ? React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 4, maxWidth: 220 } }, state.testProgress)
+                                ? React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 4, ...styles.clamp2 } }, state.testProgress)
                                 : null,
                             )
                           : p.status === 'ok'
                             ? React.createElement('span', { style: styles.pill(T.ok) }, `✓ 正常 · ${p.latencyMs} ms`)
                             : p.status === 'error'
-                              ? React.createElement('span', { style: { ...styles.pill(T.error), maxWidth: 240, whiteSpace: 'normal' } }, `✗ ${p.error || '连接失败'}`)
+                              ? React.createElement('span', { style: { ...styles.pill(T.error), whiteSpace: 'normal' } }, `✗ ${p.error || '连接失败'}`)
                               : React.createElement('span', { style: { fontSize: 12, color: T.text2 } }, '未测试'),
                       ),
-                      React.createElement('td', { style: { ...styles.td, textAlign: 'right', whiteSpace: 'nowrap' } },
-                        React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => setDialog({ kind: 'provider', provider: p }) }, '编辑'),
-                        ' ',
-                        React.createElement('button', { type: 'button', style: styles.btnSm, disabled: testing, onClick: () => actions.testProvider(p) }, '测试连接'),
-                        ' ',
-                        React.createElement('button', { type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error }, onClick: () => setDialog({ kind: 'deleteProvider', provider: p }) }, '删除'),
+                      React.createElement('td', { style: { ...styles.td } },
+                        React.createElement('div', { style: styles.btnWrap },
+                          React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => setDialog({ kind: 'provider', provider: p }) }, '编辑'),
+                          React.createElement('button', { type: 'button', style: styles.btnSm, disabled: testing, onClick: () => actions.testProvider(p) }, '测试连接'),
+                          React.createElement('button', { type: 'button', style: { ...styles.btnSm, color: T.error, borderColor: T.error }, onClick: () => setDialog({ kind: 'deleteProvider', provider: p }) }, '删除'),
+                        ),
                       ),
                     );
                   })),
@@ -914,9 +954,9 @@ window.__ModuleLoader__.load({
                   React.createElement('button', {
                     type: 'button',
                     style: styles.btnSm,
-                    disabled: disabled || busy === m.id,
+                    disabled: disabled || busy === m.id || st?.status === 'downloading',
                     onClick: () => { void download(m.id); },
-                  }, busy === m.id ? '开始下载…' : st?.status === 'downloading' ? '下载中…' : '下载'),
+                  }, st?.status === 'downloading' ? `${st.progress ?? 0}%` : busy === m.id ? '开始下载…' : '下载'),
                 );
               }),
             ),
@@ -1045,6 +1085,8 @@ window.__ModuleLoader__.load({
       const [searching, setSearching] = React.useState(false);
       const [toast, setToast] = React.useState(null);
       const [importReport, setImportReport] = React.useState(null);
+      // 一次性操作的防双击锁（'createBase' | 'rename' | 'delete' | 'deleteFolder' | 'rescan:<id>' …）
+      const [pendingAction, setPendingAction] = React.useState('');
 
       const notify = React.useCallback((message, kind) => {
         setToast({ message, kind });
@@ -1081,27 +1123,33 @@ window.__ModuleLoader__.load({
         goToTab: (t) => setTab(t),
 
         async createBase(payload) {
+          setPendingAction('createBase');
           try {
             const r = await api('/bases', { method: 'POST', body: payload });
             notify(`已创建知识库「${r.base.name}」`, 'ok');
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
+          finally { setPendingAction(''); }
         },
 
         async renameBase(id, name) {
+          setPendingAction('rename');
           try {
             await api(`/bases/${encodeURIComponent(id)}`, { method: 'PATCH', body: { name } });
             notify(`已重命名为「${name}」`, 'ok');
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
+          finally { setPendingAction(''); }
         },
 
         async deleteBase(id) {
+          setPendingAction('delete');
           try {
             await api(`/bases/${encodeURIComponent(id)}`, { method: 'DELETE' });
-            notify('已删除知识库', 'ok');
+            notify('已删除知识库（磁盘原文件不受影响）', 'ok');
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
+          finally { setPendingAction(''); }
         },
 
         async reindex(base) {
@@ -1151,38 +1199,42 @@ window.__ModuleLoader__.load({
         },
 
         async addFolder(payload) {
+          setPendingAction('addFolder');
           try {
             let targetBaseId = payload.baseId;
             if (!targetBaseId) {
               const r = await api('/ensure-default', { method: 'POST' });
               targetBaseId = r.base?.id;
             }
-            setTask({ label: `正在索引「${payload.dirPath}」`, percent: 30 });
+            setTask({ label: `正在索引「${payload.dirPath}」…`, percent: 30 });
             const r = await api('/documents', { method: 'POST', body: { dirPath: payload.dirPath, baseId: targetBaseId } });
             setTask({ label: '索引完成', percent: 100 });
             setImportReport({ ...r, dirPath: payload.dirPath });
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
-          finally { setTimeout(() => setTask(null), 1500); }
+          finally { setPendingAction(''); setTimeout(() => setTask(null), 1500); }
         },
 
         async rescanFolder(baseId, folder) {
+          setPendingAction(`rescan:${folder}`);
           try {
-            setTask({ label: `正在重新扫描「${folder}」`, percent: 30 });
+            setTask({ label: `正在重新扫描「${folder}」…`, percent: 30 });
             const r = await api('/documents', { method: 'POST', body: { dirPath: folder, baseId } });
             setTask({ label: '扫描完成', percent: 100 });
             setImportReport({ ...r, dirPath: folder });
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
-          finally { setTimeout(() => setTask(null), 1500); }
+          finally { setPendingAction(''); setTimeout(() => setTask(null), 1500); }
         },
 
         async deleteFolderIndex(baseId, folder) {
+          setPendingAction('deleteFolder');
           try {
             const r = await api(`/bases/${encodeURIComponent(baseId)}/folders/delete`, { method: 'POST', body: { folder } });
             notify(`已移除 ${r.deleted} 个文档的索引记录（原文件未动）`, 'ok');
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
+          finally { setPendingAction(''); }
         },
 
         async saveProvider(provider, payload) {
@@ -1234,21 +1286,13 @@ window.__ModuleLoader__.load({
           }
         },
 
-        // 草稿测试：不落库，只验证填写的端点是否可用。
+        // 草稿测试：调 /providers/test-draft，宿主直接测 spec、零落库
+        // （旧实现「先建临时 provider→测试→删除」会泄漏 __draft_ 垃圾记录）。
         async testDraft(payload) {
           setDraftTestResult(null);
           try {
-            // 临时创建→测试→删除，复用宿主的测试逻辑。
-            const created = await api('/providers', { method: 'POST', body: { ...payload, name: `__draft_${Date.now()}` } });
-            const id = created.provider?.id;
-            if (!id) throw new Error('无法创建临时 provider');
-            try {
-              const r = await api(`/providers/${encodeURIComponent(id)}/test`, { method: 'POST' });
-              setDraftTestResult(r.result);
-            } finally {
-              await api(`/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
-              await refresh();
-            }
+            const r = await api('/providers/test-draft', { method: 'POST', body: payload });
+            setDraftTestResult(r.result);
           } catch (err) {
             setDraftTestResult({ ok: false, error: String(err?.message ?? err) });
           }
@@ -1336,6 +1380,7 @@ window.__ModuleLoader__.load({
       const state = {
         tab, bases, providers, bindings, status, task, busyBaseId,
         testingProviderId, testProgress, draftTestResult, searchResult, searching,
+        pendingAction,
       };
 
       return React.createElement('div', { style: styles.page },
@@ -1476,6 +1521,14 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
+        // 等待动画样式：进入插件即注入（含 dispose 清理）。
+        ctx.effect(() => {
+          ensureStripeAnimation();
+          return () => {
+            if (stylesCleanup) { stylesCleanup(); stylesCleanup = null; }
+          };
+        }, 'dsh-destinywind-rag: stripe animation');
+
         // 原生目录选择器：每次渲染时按需解析（服务可能晚注册，与 computer-user 同策略）。
         let directoryPicker = resolveDirectoryPicker(ctx);
 
