@@ -6,14 +6,19 @@
  *  - conversation.input.left → 输入框左侧的知识库选择器
  *
  * 全部交互走宿主半的 HTTP API（/dsh-destinywind-rag/*）。
+ *
+ * 【拼接安全】web boot 会把所有插件的 client.js 拼进同一个模块作用域
+ * （dsh-app://app/plugins/??a/client.js,b/client.js,...）。文件顶层不允许
+ * 声明任何标识符——否则与其它插件撞名（曾因顶层 const API_BASE 与
+ * dsh-destinywind-memory 撞名导致整个 web boot import failed，DSH 无法启动）。
+ * 所有常量必须放在 factory(require) 函数作用域内。
  */
-
-const API_BASE = '/dsh-destinywind-rag';
 
 window.__ModuleLoader__.load({
   id: 'dsh-destinywind-rag',
   factory(require) {
     const React = require('react');
+    const API_BASE = '/dsh-destinywind-rag';
 
     const SETTINGS_SLOT = 'settings.section';
     const SETTINGS_ENTRY_ID = 'destinywind-rag';
