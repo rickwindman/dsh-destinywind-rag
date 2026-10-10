@@ -422,7 +422,7 @@ window.__ModuleLoader__.load({
             onClick: () => { void browse(); },
           }, browsingBusy ? '打开选择器…' : '浏览…'),
         ),
-        React.createElement('div', { style: { fontSize: 11.5, color: T.text2 } }, '支持 PDF、DOCX、PPTX、Markdown、TXT；子目录会递归索引。'),
+        React.createElement('div', { style: { fontSize: 11.5, color: T.text2 } }, '支持 PDF、DOCX、PPTX、MD、TXT、HTML 等文本格式；全部子目录递归索引。旧版 .doc/.ppt/.xls 会被跳过（详见「状态」页的格式说明）。'),
 
         browsing ? React.createElement('div', { style: { border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 } },
           React.createElement('div', { style: { fontSize: 12, color: T.text2 } }, '输入目录后点「列出」可查看子目录：'),
@@ -523,7 +523,7 @@ window.__ModuleLoader__.load({
           oldOffice.length > 0 ? React.createElement('div', { style: { fontSize: 12, color: T.warn, marginTop: 8 } },
             `检测到旧版 Office 格式（${oldOffice.map(([e]) => e).join('、')}）：插件无法直接解析，请用 Office/WPS 另存为 .docx / .pptx / .xlsx 后重新扫描该文件夹。`) : null,
           React.createElement('div', { style: { fontSize: 11.5, color: T.text2, marginTop: 8 } },
-            '当前支持：PDF、DOCX、PPTX、Markdown、TXT（及 JSON/CSV/LOG 等纯文本）。'),
+            '当前支持：PDF、DOCX、PPTX、Markdown、TXT、HTML（及 JSON/CSV/LOG 等纯文本）。'),
         ) : null,
         (report.failed ?? []).length > 0 ? React.createElement('div', null,
           React.createElement('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 6, color: T.error } },
@@ -874,6 +874,64 @@ window.__ModuleLoader__.load({
     // ───────────────────────── 标签页 4：状态 ─────────────────────────
 
     /**
+     * 文件格式支持说明（用户核心疑问：「我文件夹里那么多文件，为什么只索引了 15 个？」）。
+     * 三层透明化：已支持 / 常见但不支持（附转换指引）/ 其他未知类型。
+     */
+    function FormatSupportCard() {
+      const [open, setOpen] = React.useState(false);
+      const supported = [
+        ['.pdf', 'PDF 文档（需 pdfjs 依赖）'],
+        ['.docx', 'Word 文档（需 mammoth 依赖）'],
+        ['.pptx', 'PowerPoint（需 jszip 依赖）'],
+        ['.md', 'Markdown'],
+        ['.txt', '纯文本'],
+        ['.html', '网页 / HTML'],
+        ['.json', 'JSON 数据'],
+        ['.csv', 'CSV 表格'],
+        ['.log', '日志文本'],
+      ];
+      const unsupported = [
+        ['.doc', '旧版 Word'],
+        ['.ppt', '旧版 PowerPoint'],
+        ['.xls', '旧版 Excel'],
+        ['.wps', 'WPS 文档'],
+      ];
+      return React.createElement('div', { style: { border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px', background: T.surface } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          React.createElement('span', { style: { fontSize: 13, fontWeight: 600 } }, '📄 哪些文件会被索引？'),
+          React.createElement('span', { style: { display: 'flex', gap: 4, flexWrap: 'wrap' } },
+            supported.map(([ext]) => React.createElement('span', { key: ext, style: styles.pill(T.ok) }, ext)),
+          ),
+          React.createElement('button', { type: 'button', style: styles.btnLink, onClick: () => setOpen((v) => !v) },
+            open ? '收起说明' : '详细说明…'),
+        ),
+        open ? React.createElement('div', { style: { marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', gap: 8 } },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 4 } }, '✅ 已支持（导入时自动解析）'),
+            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '70px 1fr', gap: '3px 10px', fontSize: 12, color: T.text2 } },
+              supported.map(([ext, desc]) => [
+                React.createElement('span', { key: ext + 'e', style: { ...styles.mono, color: T.text } }, ext),
+                React.createElement('span', { key: ext + 'd' }, desc),
+              ]).flat()),
+          ),
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 4, color: T.warn } }, '⚠ 常见但暂不支持（导入时跳过，不会报错）'),
+            React.createElement('div', { style: { fontSize: 12, color: T.text2, lineHeight: 1.7 } },
+              '旧版 Office 二进制格式（.doc / .ppt / .xls / .wps）无法直接解析。解决办法：用 Office / WPS 打开后「另存为」对应的新格式（.docx / .pptx），再点该文件夹的「重新扫描」即可增量入库。'),
+            React.createElement('div', { style: { display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 } },
+              unsupported.map(([ext]) => React.createElement('span', { key: ext, style: styles.pill(T.warn) }, ext)),
+            ),
+          ),
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 4 } }, 'ℹ 其他说明'),
+            React.createElement('div', { style: { fontSize: 12, color: T.text2, lineHeight: 1.7 } },
+              '图片（.jpg / .png）、音视频等暂不支持索引——图片入库需要图文向量模型，尚未开放。导入时被跳过的文件会在「导入完成」报告里按扩展名列出；文件夹会递归全部子目录（无深度限制），跳过 node_modules 等噪声目录。'),
+          ),
+        ) : null,
+      );
+    }
+
+    /**
      * 可下载模型清单：文本向量 + 图文多模态（CLIP）。
      * 数据来自宿主 /models 接口（lib/local-models.js 的目录），此处只渲染。
      */
@@ -982,6 +1040,8 @@ window.__ModuleLoader__.load({
             React.createElement('button', { type: 'button', style: styles.btn, onClick: () => actions.refreshStatus() }, '刷新'),
           ),
           React.createElement('div', { style: styles.cardBody },
+            React.createElement(FormatSupportCard, null),
+            React.createElement('div', { style: { height: 12 } }),
             React.createElement(ModelCatalog, { detect, downloads, actions, disabled: onnxUnavailable }),
             downloads.length === 0
               ? null
