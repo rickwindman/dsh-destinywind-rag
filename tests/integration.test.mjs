@@ -395,6 +395,30 @@ test('集成：导入 Markdown 文件时清洗语法但保留正文', async () =
   }
 });
 
+test('集成：导入 HTML 文件时剥标签保正文（零依赖）', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rag-html-'));
+  try {
+    const file = join(dir, 'page.html');
+    await writeFile(file, '<!DOCTYPE html><html><head><style>body{color:red}</style><script>var x=1;</script></head>' +
+      '<body><h1>部署&#25351;南</h1><p>部署环境要求&nbsp;8 核 CPU。</p><!-- 注释 --><div>第二段内容。</div></body></html>', 'utf8');
+
+    const svc = memService({ embeddingProvider: 'none' });
+    const base = svc.createBase({ name: '库' });
+    await svc.addFile({ baseId: base.id, filePath: file });
+
+    const result = await svc.search({ query: '部署环境要求' });
+    assert.ok(result.hits.length > 0, '正文应可检索');
+    const text = result.hits[0].text;
+    assert.ok(!text.includes('<p>'), '标签应被剥除');
+    assert.ok(!text.includes('var x=1'), '脚本应被剥除');
+    assert.ok(!text.includes('color:red'), '样式应被剥除');
+    assert.ok(!text.includes('&nbsp;'), '实体应被解码');
+    svc.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('集成：导入目录递归处理并跳过不支持的文件', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'rag-dir-'));
   try {
