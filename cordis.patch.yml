@@ -1,0 +1,25 @@
+# dsh-destinywind-rag 安装补丁：注册宿主半（存储/检索/工具/HTTP API）
+# 与浏览器半（设置页「知识库」栏 + 输入框旁知识库选择器）。
+#
+# 必须用「包名」加载（而不是相对路径）：DSH 的 link-projection 模块解析
+# 只对包名加载生效，相对路径加载的文件无法解析宿主提供的包。
+- insert:
+    - id: destinywind-rag
+      name: dsh-destinywind-rag
+      config: {}
+      # 可选配置（不写即为默认值）：
+      #   embeddingProvider: 'auto'   # auto | openai | custom | onnx | ollama | none
+      #   embeddingEndpoint: ''       # OpenAI 兼容 / 自定义 HTTP 端点
+      #   embeddingApiKey: ''         # 也可用环境变量 KNOWLEDGE_API_KEY
+      #   embeddingModel: ''          # 空 = 按 provider 自动选择
+      #   chunkSize: 800              # 分块字符数
+      #   chunkOverlap: 100           # 分块重叠
+      #   topK: 6                     # 默认召回条数
+      #   searchMode: 'auto'          # auto | hybrid | vector | lexical
+      #   rrfVectorWeight: 1          # 向量路在 RRF 融合中的权重
+      #   rerankEnabled: false        # 可选重排序
+      #   rerankEndpoint: ''
+      #   rerankModel: ''
+      #   rerankApiKey: ''
+      #   autoRetrieve: true          # 未显式选择知识库时，由模型自行判断是否检索
+      #   localModelCacheDir: ''      # 空 = <DSH_HOME>/cache/dsh-destinywind-rag/models
