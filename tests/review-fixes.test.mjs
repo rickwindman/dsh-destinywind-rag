@@ -367,3 +367,31 @@ test('复审R14: Ollama 测试连接必须真实探测维度', async () => {
     await closeServer(server);
   }
 });
+
+test('长任务P1: 重建进度快照随循环推进并可查询', async () => {
+  const svc = memService();
+  const base = svc.createBase({ name: '库' });
+  for (let i = 0; i < 4; i++) {
+    await svc.addText({ baseId: base.id, title: `doc${i}`, text: `部署内容${i}。` });
+  }
+  const seen = [];
+  await svc.reindexBase(base.id, {
+    onProgress: (p) => seen.push({ percent: p.percent, total: p.total, stage: p.stage }),
+  });
+  assert.ok(seen.length >= 4, `每个文档都应上报进度，实际 ${seen.length} 次`);
+  assert.equal(seen[0].total, 4);
+  assert.ok(seen[seen.length - 1].percent === 100, '结尾进度 100');
+  assert.ok(seen.some((s) => s.stage.includes('正在重建：')), 'stage 应含当前文档名');
+  // 内存快照可被 HTTP 轮询消费
+  const snap = svc.getReindexProgress();
+  assert.equal(snap.running, false, '完成后 running=false');
+  assert.equal(snap.percent, 100);
+  assert.equal(snap.result.chunks, 4);
+  svc.close();
+});
+
+test('长任务P2: 未开始重建时进度快照为安全默认值', () => {
+  const svc = memService();
+  assert.deepEqual(svc.getReindexProgress(), { running: false });
+  svc.close();
+});
