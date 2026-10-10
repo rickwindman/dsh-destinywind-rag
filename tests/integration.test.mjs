@@ -56,6 +56,20 @@ function memService(config = {}) {
   return new KnowledgeService({ storePath: ':memory:', ...config });
 }
 
+/**
+ * 测试环境安全阀：detect 强制报告「运行时不可用」，防止 ensureDefault/
+ * startModelDownload 在测试里触发真实的模型下载（曾实测在 CI 上拉了 2.3GB）。
+ * 本地 ONNX 推理链路由独立探针脚本验证（见 docs/04），不进单元测试。
+ */
+const origDetect = KnowledgeService.prototype.detect;
+KnowledgeService.prototype.detect = async function patchedDetect(options = {}) {
+  const report = await origDetect.call(this, { ...options, skipNetwork: true });
+  report.onnx.ok = false;
+  report.onnx.reason = '（测试环境：禁用真实下载）';
+  report.recommended = report.recommended === 'onnx' ? 'none' : report.recommended;
+  return report;
+};
+
 // ───────────────────────── 零配置 ─────────────────────────
 
 test('集成：零配置首次调用自动创建默认知识库与 provider', async () => {
