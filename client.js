@@ -1008,6 +1008,11 @@ window.__ModuleLoader__.load({
                       React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => actions.downloadModel(d.model) }, '重试下载'),
                       React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => actions.switchToOllama() }, '改用本机 Ollama'),
                       React.createElement('button', { type: 'button', style: styles.btnSm, onClick: () => actions.disableVector() }, '改用纯关键词检索'),
+                      React.createElement('button', {
+                        type: 'button', style: styles.btnSm,
+                        title: '删除该模型已下载的缓存文件，释放磁盘空间（原文件与索引数据不受影响）',
+                        onClick: () => actions.deleteModelCache(d.model),
+                      }, '删除缓存'),
                     ),
                   ) : null,
                 ))),
@@ -1359,6 +1364,15 @@ window.__ModuleLoader__.load({
           try {
             await api('/models/cancel', { method: 'POST', body: { model } });
             notify('已取消下载', 'ok');
+            await refresh();
+          } catch (err) { notify(String(err?.message ?? err), 'error'); }
+        },
+
+        // 删除失败模型的本地缓存（释放磁盘；只删模型权重，不动知识库数据）。
+        async deleteModelCache(model) {
+          try {
+            await api('/models/delete-cache', { method: 'POST', body: { model } });
+            notify('已删除该模型的缓存文件', 'ok');
             await refresh();
           } catch (err) { notify(String(err?.message ?? err), 'error'); }
         },
