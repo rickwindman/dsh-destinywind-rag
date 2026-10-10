@@ -296,6 +296,12 @@ function makeHandler(getConfig) {
         const body = await readJsonBody(req);
         return json(res, 200, { ok: true, ...svc.cancelModelDownload(body?.model) });
       }
+      // 删除某模型的本地缓存（失败模型占盘 / 需重下的自助清理）。
+      if (method === 'POST' && path === '/models/delete-cache') {
+        const body = await readJsonBody(req);
+        const r = await svc.deleteModelCache(body?.model);
+        return json(res, 200, { ok: true, ...r });
+      }
 
       // ── 本地模型目录（下载页的可选清单）──
       if (method === 'GET' && path === '/models') {
