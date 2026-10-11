@@ -102,6 +102,18 @@ dsh plugin --profile <profile> add dsh-destinywind-rag
 4. 在下方 **知识库 ↔ 模型绑定** 表中点 **更换模型**，选该 provider
 5. 确认弹窗「更换后需重建索引」→ 自动触发重建
 
+#### 非对称模型（`input_type`）
+
+部分向量模型是**非对称**的：文档与查询必须用不同的 `input_type` 编码，否则会直接报错或检索精度显著下降。典型代表是 NVIDIA NIM 的 `nv-embedqa` / `nemotron-embed` 系列。
+
+在 provider 编辑弹窗的 **模型类型** 中选「非对称模型」即可：
+
+- 建索引 / 重建索引 → 自动发送 `input_type: "passage"`
+- 检索查询 → 自动发送 `input_type: "query"`
+- 测试连接 → 自动发送 `input_type: "passage"`
+
+普通 OpenAI、硅基流动等对称模型请保持默认「对称模型」（请求体不含该字段）。切换模型类型会改变向量空间，绑定的知识库会被标记为待重建。
+
 ### 3. 使用本机 Ollama
 
 ```powershell

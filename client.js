@@ -696,6 +696,7 @@ window.__ModuleLoader__.load({
       const [apiKey, setApiKey] = React.useState('');
       const [model, setModel] = React.useState(provider?.model ?? '');
       const [dim, setDim] = React.useState(provider?.dim ? String(provider.dim) : '');
+      const [inputTypeMode, setInputTypeMode] = React.useState(provider?.inputTypeMode ?? 'none');
 
       const isLocal = kind === 'onnx' || kind === 'ollama';
 
@@ -707,6 +708,7 @@ window.__ModuleLoader__.load({
           apiKey: apiKey.trim(),
           model: model.trim(),
           dim: Number(dim) || 0,
+          inputTypeMode: isLocal ? 'none' : inputTypeMode,
         };
       }
 
@@ -742,6 +744,18 @@ window.__ModuleLoader__.load({
 
         React.createElement('label', { style: { fontSize: 12, color: T.text2 } }, '向量维度（可选）'),
         React.createElement('input', { style: styles.input, value: dim, placeholder: '留空则测试连接时自动探测', onChange: (e) => setDim(e.target.value) }),
+
+        !isLocal ? React.createElement(React.Fragment, null,
+          React.createElement('label', { style: { fontSize: 12, color: T.text2 } }, '模型类型'),
+          React.createElement('select', { style: styles.select, value: inputTypeMode, onChange: (e) => setInputTypeMode(e.target.value) },
+            React.createElement('option', { value: 'none' }, '对称模型（默认，不发送 input_type）'),
+            React.createElement('option', { value: 'asymmetric' }, '非对称模型（索引发 passage / 检索发 query）'),
+          ),
+          React.createElement('div', { style: { fontSize: 11.5, color: T.text2, lineHeight: 1.6 } },
+            'NVIDIA NIM 的 nv-embedqa / nemotron-embed 等系列属于非对称模型：文档与查询必须用不同的 input_type 编码，',
+            '否则会直接报 400，或检索精度明显下降。普通 OpenAI / 硅基流动等对称模型请保持默认。',
+            inputTypeMode === 'asymmetric' ? ' 切换后需重建索引。' : ''),
+        ) : null,
 
         isLocal ? React.createElement('div', { style: { padding: 10, borderRadius: 8, background: T.surfaceAlt, fontSize: 12, color: T.ok } },
           '本地向量模型开箱即用，无需 API Key；首次使用时自动下载权重并显示进度。') : null,

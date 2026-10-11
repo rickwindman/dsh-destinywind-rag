@@ -389,3 +389,76 @@ test('embedTexts：Ollama 链路成功返回向量', async () => {
     assert.equal(vectors[1][0], 4);
   });
 });
+
+// ───────────────────────── 非对称模型（input_type）─────────────────────────
+// 背景：NVIDIA NIM 的 nv-embedqa / nemotron-embed 系列是「非对称模型」，
+// 建索引用 passage、检索用 query，不带 input_type 会被拒（400）或质量显著下降。
+
+/** 起一个会记录每次请求体的桩服务，返回收集到的请求体数组。 */
+async function withCaptureServer(fn) {
+  const seen = [];
+  await withStubServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      seen.push(JSON.parse(body));
+      const data = JSON.parse(body).input.map((_, i) => ({ index: i, embedding: [1, 2, 3] }));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data }));
+    });
+  }, async (base) => { await fn(base); });
+  return seen;
+}
+
+test('embedTexts：spec.inputType 会被放进请求体（建索引用 passage）', async () => {
+  const seen = await withCaptureServer(async (base) => {
+    await embedTexts({ kind: 'openai', endpoint: base, model: 'm', inputType: 'passage' }, ['甲']);
+  });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].input_type, 'passage');
+});
+
+test('embedTexts：spec.inputType=query 时请求体带 query', async () => {
+  const seen = await withCaptureServer(async (base) => {
+    await embedTexts({ kind: 'openai', endpoint: base, model: 'm', inputType: 'query' }, ['甲']);
+  });
+  assert.equal(seen[0].input_type, 'query');
+});
+
+test('embedTexts：未设置 inputType 时请求体不含该字段（保持旧行为）', async () => {
+  const seen = await withCaptureServer(async (base) => {
+    await embedTexts({ kind: 'openai', endpoint: base, model: 'm' }, ['甲']);
+  });
+  assert.equal('input_type' in seen[0], false, '默认不得改变既有请求格式');
+});
+
+test('embedTexts：options.inputType 优先于 spec.inputType', async () => {
+  const seen = await withCaptureServer(async (base) => {
+    await embedTexts({ kind: 'openai', endpoint: base, model: 'm', inputType: 'passage' }, ['甲'], { inputType: 'query' });
+  });
+  assert.equal(seen[0].input_type, 'query');
+});
+
+test('embedTexts：input_type 在切批后每一批都携带', async () => {
+  const seen = await withCaptureServer(async (base) => {
+    await embedTexts({ kind: 'openai', endpoint: base, model: 'm', inputType: 'passage' }, ['a', 'b', 'c', 'd', 'e'], { batchSize: 2 });
+  });
+  assert.equal(seen.length, 3, '5 条 / 每批 2 条 = 3 次请求');
+  for (const body of seen) assert.equal(body.input_type, 'passage');
+});
+
+test('probeRemote：带 inputType 时探测请求含 input_type', async () => {
+  const seen = await withCaptureServer(async (base) => {
+    const r = await probeRemote({ kind: 'openai', endpoint: base, model: 'm', inputType: 'passage' });
+    assert.equal(r.ok, true);
+    assert.equal(r.dim, 3);
+  });
+  assert.equal(seen[0].input_type, 'passage');
+});
+
+test('probeRemote：不带 inputType 时探测请求不含该字段', async () => {
+  const seen = await withCaptureServer(async (base) => {
+    await probeRemote({ kind: 'openai', endpoint: base, model: 'm' });
+  });
+  assert.equal('input_type' in seen[0], false);
+});

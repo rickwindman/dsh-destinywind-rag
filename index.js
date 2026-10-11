@@ -245,6 +245,7 @@ function makeHandler(getConfig) {
           endpoint: String(body?.endpoint ?? ''),
           model: String(body?.model ?? ''),
           apiKey: String(body?.apiKey ?? ''),
+          inputTypeMode: String(body?.inputTypeMode ?? 'none'),
         });
         return json(res, 200, { ok: true, result });
       }
