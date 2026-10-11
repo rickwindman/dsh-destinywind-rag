@@ -836,6 +836,14 @@ window.__ModuleLoader__.load({
                 React.createElement('div', { style: { fontSize: 12.5 } }, searchResult.message ?? '可尝试更换关键词、放宽相似度阈值，或确认目标知识库已完成索引。'),
               ))
             : React.createElement('div', { style: styles.card },
+                Array.isArray(searchResult.staleBases) && searchResult.staleBases.length > 0
+                  ? React.createElement('div', { style: { margin: '14px 14px 0', padding: '10px 12px', borderRadius: 8, background: T.surfaceAlt, border: `1px solid ${T.border}`, fontSize: 12, lineHeight: 1.6, color: T.text } },
+                      '⚠ 以下知识库的向量模型或编码模式已变更、尚未重建索引，本次检索的向量分数不可比：',
+                      React.createElement('div', { style: { marginTop: 4, color: T.text2 } },
+                        searchResult.staleBases.map((b) => b.name).join('、'),
+                        ' —— 请在「知识库列表」执行「重建索引」后检索。'),
+                    )
+                  : null,
                 React.createElement('div', { style: { padding: 14, display: 'flex', flexDirection: 'column', gap: 10 } },
                   searchResult.hits.map((hit, i) => React.createElement(HitCard, { key: hit.id, hit, index: i, query, actions })),
                 ),

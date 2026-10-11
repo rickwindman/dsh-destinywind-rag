@@ -576,3 +576,142 @@ test('集成：重命名知识库时拒绝空名', () => {
   assert.throws(() => svc.renameBase(base.id, '  '), /不能为空/);
   svc.close();
 });
+
+// ───────────────────────── 非对称模型：service 层 role 传递 ─────────────────────────
+//
+// provider.test.mjs 只验证 embed.js 会把 inputType 放进请求体；这里锁定
+// service 层在三种场景下传给 embedTexts 的 role 是否正确——这是「索引/查询
+// 空间对齐」的真正防线：写错方向（查询发 passage、索引发 query）时必须变红。
+
+test('集成：非对称 provider 导入文档时桩服务收到 input_type=passage', async () => {
+  const seen = [];
+  const server = await startCaptureStub(seen);
+  // endpoint 必须指向捕获桩自身——请求真正打到这个桩，seen 才有记录。
+  const endpoint = stubEndpoint(server);
+  try {
+    const svc = memService();
+    const provider = svc.createProvider({ kind: 'openai', name: '非对称', endpoint, model: 'asym-m', inputTypeMode: 'asymmetric' });
+    await svc.testProvider(provider.id);
+    const base = svc.createBase({ name: '库A' });
+    svc.bindProvider(base.id, provider.id);
+    await svc.addText({ baseId: base.id, title: 't', text: '这是需要被索引的正文内容。' });
+    svc.close();
+  } finally {
+    await closeServer(server);
+  }
+  assert.ok(seen.length > 0, '桩服务应收到至少一次请求');
+  assert.equal(seen.at(-1).input_type, 'passage', '索引入口必须发 passage');
+});
+
+test('集成：非对称 provider 检索时桩服务收到 input_type=query', async () => {
+  const seen = [];
+  const server = await startCaptureStub(seen);
+  const endpoint = stubEndpoint(server);
+  try {
+    const svc = memService();
+    const provider = svc.createProvider({ kind: 'openai', name: '非对称', endpoint, model: 'asym-m', inputTypeMode: 'asymmetric' });
+    await svc.testProvider(provider.id);
+    const base = svc.createBase({ name: '库B' });
+    svc.bindProvider(base.id, provider.id);
+    await svc.addText({ baseId: base.id, title: 't', text: '苹果公司发布了新的操作系统。' });
+    await svc.search({ query: '苹果 操作系统' });
+    svc.close();
+  } finally {
+    await closeServer(server);
+  }
+  const types = seen.map((b) => b.input_type);
+  assert.ok(types.includes('passage'), '导入阶段应发过 passage');
+  assert.equal(types.at(-1), 'query', '最后一次请求是检索，必须发 query');
+});
+
+test('集成：对称 provider 全链路不发送 input_type（回归保护）', async () => {
+  const seen = [];
+  const server = await startCaptureStub(seen);
+  const endpoint = stubEndpoint(server);
+  try {
+    const svc = memService();
+    const provider = svc.createProvider({ kind: 'openai', name: '对称', endpoint, model: 'sym-m' });
+    await svc.testProvider(provider.id);
+    const base = svc.createBase({ name: '库C' });
+    svc.bindProvider(base.id, provider.id);
+    await svc.addText({ baseId: base.id, title: 't', text: '普通对称模型的正文。' });
+    await svc.search({ query: '正文' });
+    svc.close();
+  } finally {
+    await closeServer(server);
+  }
+  assert.ok(seen.length > 0);
+  for (const body of seen) assert.equal('input_type' in body, false, '对称模式任何请求都不得携带 input_type');
+});
+
+test('集成：切到非对称后未重建时，search 返回 staleBases；重建后清空', async () => {
+  const seen = [];
+  const server = await startCaptureStub(seen);
+  const endpoint = stubEndpoint(server);
+  try {
+    const svc = memService();
+    const provider = svc.createProvider({ kind: 'openai', name: '切换测试', endpoint, model: 'm1' });
+    await svc.testProvider(provider.id);
+    const base = svc.createBase({ name: '库D' });
+    svc.bindProvider(base.id, provider.id);
+    await svc.addText({ baseId: base.id, title: 't', text: '重建提示测试正文，苹果与香蕉。' });
+
+    // 对称模式下检索：无 stale。
+    let r = await svc.search({ query: '苹果' });
+    assert.deepEqual(r.staleBases, []);
+
+    // 切到非对称（同模型、同维度，维度守卫不会触发）→ 应标 stale。
+    svc.updateProvider(provider.id, { inputTypeMode: 'asymmetric' });
+    assert.equal(svc.listBases().find((b) => b.id === base.id).status, 'stale', '切模式后应标需重建');
+
+    r = await svc.search({ query: '苹果' });
+    assert.deepEqual(r.staleBases.map((b) => b.name), ['库D'], '检索结果必须携带 stale 提示');
+
+    // 重建后恢复 ready，提示消失。
+    const report = await svc.reindexBase(base.id);
+    assert.equal(report.failed.length, 0);
+    assert.equal(svc.listBases().find((b) => b.id === base.id).status, 'ready');
+    r = await svc.search({ query: '苹果' });
+    assert.deepEqual(r.staleBases, []);
+    svc.close();
+  } finally {
+    await closeServer(server);
+  }
+  // 全链路跑完后，最后一次请求应为检索 query（重建用 passage）。
+  assert.equal(seen.at(-1).input_type, 'query');
+});
+
+/** 捕获桩的 /v1 端点地址。 */
+function stubEndpoint(server) {
+  const { port } = server.address();
+  return `http://127.0.0.1:${port}/v1`;
+}
+
+/** 记录桩服务收到的每个请求体（model/input/input_type）。 */
+function startCaptureStub(seen) {
+  return new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const parsed = JSON.parse(body);
+        // 请求体带了 input_type 才记录该键——保证下游 `'input_type' in record`
+        // 能区分「发了」与「没发」，而不是被 null 混淆。
+        const record = { model: parsed.model, count: parsed.input?.length ?? 0 };
+        if ('input_type' in parsed) record.input_type = parsed.input_type;
+        seen.push(record);
+        const data = parsed.input.map((text, i) => ({
+          index: i,
+          embedding: Array.from({ length: 4 }, (_, k) => {
+            let sum = 0;
+            for (const ch of String(text)) sum += ch.codePointAt(0) * (k + 1);
+            return (sum % 97) / 97;
+          }),
+        }));
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data }));
+      });
+    });
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
