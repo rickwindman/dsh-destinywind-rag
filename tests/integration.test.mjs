@@ -715,3 +715,66 @@ function startCaptureStub(seen) {
     server.listen(0, '127.0.0.1', () => resolve(server));
   });
 }
+
+// ───────────────────────── HTTP 路由顺序（真实事故回归）─────────────────────────
+//
+// POST /providers/test-draft 曾排在 /providers/:id 之后，字面量 `test-draft`
+// 被 :id 正则吃掉 → updateProvider('test-draft') → 报「provider 不存在」，
+// 编辑对话框的「测试连接」永远失败。这里用真实 HTTP 请求锁定路由顺序。
+
+test('HTTP：POST /providers/test-draft 走草稿测试而非 updateProvider', async () => {
+  const { makeHandler } = await import('../index.js');
+  const handler = makeHandler(() => ({ storePath: ':memory:' }));
+  const server = createServer(handler);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/dsh-destinywind-rag/providers/test-draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'openai', endpoint: 'http://127.0.0.1:1/v1', model: 'm', apiKey: 'k' }),
+    });
+    const body = await res.json();
+    // 外层 body.ok 是 HTTP 包络（处理成功恒为 true）；测试结果在 body.result。
+    // 若路由顺序回归，请求会走进 updateProvider('test-draft') 抛「provider 不存在」，
+    // 包络变成 { ok: false, error: 'provider 不存在' }——这正是要拦住的形态。
+    assert.equal(body.ok, true, `路由处理本身应成功: ${body?.error ?? ''}`);
+    assert.notEqual(String(body?.error ?? ''), 'provider 不存在', 'test-draft 被路由进了 updateProvider——路由顺序回归');
+    assert.equal(body.result?.ok, false, '假端点（127.0.0.1:1）探测应失败');
+    assert.match(String(body.result?.error ?? ''), /网络错误|失败|无法/i, '应是网络/连接类错误');
+  } finally {
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('HTTP：POST /providers/:id 仍正常工作（带真实 id）', async () => {
+  const { makeHandler } = await import('../index.js');
+  const handler = makeHandler(() => ({ storePath: ':memory:' }));
+  const server = createServer(handler);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    // 先建一个真 provider
+    const created = await fetch(`http://127.0.0.1:${port}/dsh-destinywind-rag/providers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'openai', name: '回归', endpoint: 'http://127.0.0.1:1/v1', model: 'm', apiKey: 'k' }),
+    });
+    const createdBody = await created.json();
+    assert.equal(createdBody.ok, true);
+    const id = createdBody.provider.id;
+    // PATCH 更新它——证明 :id 路由没被破坏
+    const patched = await fetch(`http://127.0.0.1:${port}/dsh-destinywind-rag/providers/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '回归改名' }),
+    });
+    const patchedBody = await patched.json();
+    assert.equal(patchedBody.ok, true, `PATCH /providers/:id 应成功: ${patchedBody.error ?? ''}`);
+    assert.equal(patchedBody.provider.name, '回归改名');
+  } finally {
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -221,6 +221,20 @@ function makeHandler(getConfig) {
         const body = await readJsonBody(req);
         return json(res, 200, { ok: true, provider: svc.createProvider(body) });
       }
+      // 草稿测试：直接测一份未保存的 spec，**零落库**（替代旧的先建后删，杜绝 __draft_ 泄漏）。
+      // 必须排在 /providers/:id 之前——否则 `test-draft` 会被 :id 正则吃掉，
+      // 走进 updateProvider('test-draft') 报「provider 不存在」（真实事故路径）。
+      if (method === 'POST' && path === '/providers/test-draft') {
+        const body = await readJsonBody(req);
+        const result = await svc.testProviderSpec({
+          kind: String(body?.kind ?? 'openai'),
+          endpoint: String(body?.endpoint ?? ''),
+          model: String(body?.model ?? ''),
+          apiKey: String(body?.apiKey ?? ''),
+          inputTypeMode: String(body?.inputTypeMode ?? 'none'),
+        });
+        return json(res, 200, { ok: true, result });
+      }
       const providerMatch = /^\/providers\/([^/]+)$/.exec(path);
       if (providerMatch) {
         const id = decodeURIComponent(providerMatch[1]);
@@ -235,18 +249,6 @@ function makeHandler(getConfig) {
       const testMatch = /^\/providers\/([^/]+)\/test$/.exec(path);
       if (testMatch && (method === 'POST' || method === 'GET')) {
         const result = await svc.testProvider(decodeURIComponent(testMatch[1]));
-        return json(res, 200, { ok: true, result });
-      }
-      // 草稿测试：直接测一份未保存的 spec，**零落库**（替代旧的先建后删，杜绝 __draft_ 泄漏）。
-      if (method === 'POST' && path === '/providers/test-draft') {
-        const body = await readJsonBody(req);
-        const result = await svc.testProviderSpec({
-          kind: String(body?.kind ?? 'openai'),
-          endpoint: String(body?.endpoint ?? ''),
-          model: String(body?.model ?? ''),
-          apiKey: String(body?.apiKey ?? ''),
-          inputTypeMode: String(body?.inputTypeMode ?? 'none'),
-        });
         return json(res, 200, { ok: true, result });
       }
 
@@ -528,4 +530,4 @@ export function apply(ctx, config = {}) {
   logger.info?.('dsh-destinywind-rag: 已挂载（知识库 / RAG，混合检索）');
 }
 
-export { TOOL_NAME, ROUTE_PREFIX };
+export { TOOL_NAME, ROUTE_PREFIX, makeHandler };
